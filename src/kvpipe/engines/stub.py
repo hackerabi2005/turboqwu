@@ -45,23 +45,47 @@ class StubHandler(BaseHTTPRequestHandler):
             messages = data.get("messages", [])
             prompt = messages[-1].get("content", "") if messages else data.get("prompt", "")
 
+            # Eviction event simulation on class attributes for arms with compression
+            if StubHandler.arm and StubHandler.arm.compression.method == "triattention":
+                budget = StubHandler.arm.compression.budget or 3072
+                StubHandler.received_evictions += 1
+                if budget > 256 or StubHandler.arm.id == "C1":
+                    StubHandler.applied_evictions += 1
+
             response_text = self._generate_response(prompt)
 
-            # Eviction event simulation for arms with compression
-            if self.arm and self.arm.compression.method == "triattention":
-                budget = self.arm.compression.budget or 3072
-                # If prompt/output tokens exceed budget, simulate eviction
-                self.received_evictions += 1
-                if budget > 256:
-                    self.applied_evictions += 1
-                elif self.arm.id == "C1":  # Canary arm
-                    self.applied_evictions += 1
+            # Support streaming SSE if requested
+            if data.get("stream"):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/event-stream")
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+
+                words = response_text.split(" ")
+                for i, word in enumerate(words):
+                    space = " " if i > 0 else ""
+                    chunk = {
+                        "id": "stub-cmpl-123",
+                        "object": "chat.completion.chunk",
+                        "choices": [{"index": 0, "delta": {"content": space + word}, "finish_reason": None}],
+                    }
+                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+
+                final_chunk = {
+                    "id": "stub-cmpl-123",
+                    "object": "chat.completion.chunk",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+                self.wfile.write(f"data: {json.dumps(final_chunk)}\n\ndata: [DONE]\n\n".encode("utf-8"))
+                self.wfile.flush()
+                return
 
             resp = {
                 "id": "stub-cmpl-123",
                 "object": "chat.completion",
                 "created": 1234567890,
-                "model": self.arm.model if self.arm else "stub-model",
+                "model": StubHandler.arm.model if StubHandler.arm else "stub-model",
                 "choices": [
                     {
                         "index": 0,
@@ -105,7 +129,7 @@ class StubHandler(BaseHTTPRequestHandler):
             return "The final answer is some calculation without any box."
 
         # Canary arm behavior: intentionally degraded accuracy
-        if self.arm and self.arm.id == "C1":
+        if StubHandler.arm and StubHandler.arm.id == "C1":
             return "<think>Canary compressed cache degradation</think> The answer is \\boxed{99999}."
 
         # Needle in a haystack response
@@ -117,11 +141,10 @@ class StubHandler(BaseHTTPRequestHandler):
         gold_match = re.search(r"\[GOLD:([^\]]+)\]", prompt)
         if gold_match:
             gold = gold_match.group(1)
-            # Control accuracy per arm based on published evidence E4
-            arm_id = self.arm.id if self.arm else "A0"
+            arm_id = StubHandler.arm.id if StubHandler.arm else "A0"
             if arm_id == "A5":  # budget 2048 drops ~8 pts
-                # Drop ~20% of answers
-                if hash(prompt) % 5 == 0:
+                # Intentionally drop ~20% of problems (e.g. problem 1 and 5)
+                if "problem 1:" in prompt.lower() or "problem 5:" in prompt.lower():
                     return "<think>TriAttention 2048 budget eviction mistake</think> \\boxed{0}"
             return f"<think>Step by step reasoning for problem.</think> Therefore, the answer is \\boxed{{{gold}}}."
 
@@ -140,11 +163,6 @@ class StubEngineHandle(EngineHandle):
         return f"http://127.0.0.1:{self._port}/v1"
 
     def kv_capacity_tokens(self) -> int:
-        # Realistic capacity ratios per PLAN.md
-        # A0 (BF16): 32768 tokens (baseline 1.0x)
-        # A1 (FP8): 65536 tokens (2.0x)
-        # A2 (NVFP4): 116508 tokens (3.56x)
-        # A7 (TurboQuant 4bit): 111411 tokens (3.4x)
         if self._arm.kv_dtype == "fp8":
             return 65536
         elif self._arm.kv_dtype == "nvfp4":

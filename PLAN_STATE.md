@@ -23,3 +23,8 @@
 | Phase 3 | P3.5 | Paired bootstrap & power planning | `src/kvpipe/stats.py` | Done | 10k paired bootstrap resamples, 95% CI, PASS/FAIL/INCONCLUSIVE verdict rule |
 | Phase 3 | P3.6-7 | Known-answer test & harness verification | `tests/test_evaluation_harness.py` | Done | All 5 harness tests passing, verified corruption flagging |
 | Phase 4 | P4.1-3 | Performance harness & concurrency sweep | `src/kvpipe/run/perf.py`, `tests/test_perf.py` | Done | Concurrency sweep, TTFT/TPOT percentiles, KV bytes/token calculation, 3x repeat statistics |
+| Phase 5 | P5.1 | TriAttention calibration stats resolver | `src/kvpipe/calib.py` | Done | Shipped stats resolver for Qwen3-8B and DeepSeek-R1-Distill, calibration wrapper |
+| Phase 5 | P5.2 | vLLM plugin environment launcher | `src/kvpipe/engines/vllm.py` | Done | `TRIATTN_RUNTIME_SPARSE_STATS_PATH`, `TRIATTN_RUNTIME_KV_BUDGET`, prompt protection |
+| Phase 5 | P5.3 | Eviction events tracking & G4 validation | `eviction_events()` in `base.py`, `vllm.py`, `stub.py` | Done | Checks received and applied eviction events > 0 |
+| Phase 5 | P5.4 | TensorRT-LLM adapter (T1 Blackwell) | `src/kvpipe/engines/trtllm.py` | Done | Supports B200 TRTLLM TriAttention config with KV pages plateau monitoring |
+| Phase 5 | P5.5-6 | Canary C1 verification & R1 reproduction | `tests/test_triattention_arms.py` | Done | Canary C1 drops > 10 pts; R1 reproduces A0 within 5 pts; A5 budget 2048 degrades accuracy |

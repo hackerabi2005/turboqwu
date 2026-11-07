@@ -1,6 +1,5 @@
 """Unit tests for Phase 4 performance harness."""
 
-import pytest
 from kvpipe.config import ArmConfig
 from kvpipe.engines.stub import StubEngine
 from kvpipe.run.perf import calculate_kv_bytes_per_token, run_performance_sweep
