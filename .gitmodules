@@ -1,0 +1,3 @@
+[submodule "third_party/triattention"]
+	path = third_party/triattention
+	url = https://github.com/WeianMao/triattention
