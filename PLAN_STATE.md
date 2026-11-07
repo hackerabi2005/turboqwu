@@ -22,3 +22,4 @@
 | Phase 3 | P3.4 | Integrity checker & review generator | `src/kvpipe/run/integrity.py` | Done | Flags empty, truncated, corrupt chars, high repetition, and missing boxed answers; writes `artifacts/review/ARM.md` |
 | Phase 3 | P3.5 | Paired bootstrap & power planning | `src/kvpipe/stats.py` | Done | 10k paired bootstrap resamples, 95% CI, PASS/FAIL/INCONCLUSIVE verdict rule |
 | Phase 3 | P3.6-7 | Known-answer test & harness verification | `tests/test_evaluation_harness.py` | Done | All 5 harness tests passing, verified corruption flagging |
+| Phase 4 | P4.1-3 | Performance harness & concurrency sweep | `src/kvpipe/run/perf.py`, `tests/test_perf.py` | Done | Concurrency sweep, TTFT/TPOT percentiles, KV bytes/token calculation, 3x repeat statistics |
