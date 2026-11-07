@@ -1,0 +1,20 @@
+{"id": 1, "prompt": "What is 2 + 2? Answer with only the number.", "expected": "4", "category": "arithmetic"}
+{"id": 2, "prompt": "Calculate 12 * 12. Answer with only the number.", "expected": "144", "category": "arithmetic"}
+{"id": 3, "prompt": "What is 100 - 37? Answer with only the number.", "expected": "63", "category": "arithmetic"}
+{"id": 4, "prompt": "What is 15 + 28? Answer with only the number.", "expected": "43", "category": "arithmetic"}
+{"id": 5, "prompt": "What is 7 * 8? Answer with only the number.", "expected": "56", "category": "arithmetic"}
+{"id": 6, "prompt": "What is 81 / 9? Answer with only the number.", "expected": "9", "category": "arithmetic"}
+{"id": 7, "prompt": "What is the capital of France? Answer with only the city name.", "expected": "Paris", "category": "facts"}
+{"id": 8, "prompt": "What is the chemical symbol for water? Answer only with the formula.", "expected": "H2O", "category": "facts"}
+{"id": 9, "prompt": "What is the largest planet in our solar system? Answer with only the planet name.", "expected": "Jupiter", "category": "facts"}
+{"id": 10, "prompt": "What element has atomic number 1? Answer with only the element name.", "expected": "Hydrogen", "category": "facts"}
+{"id": 11, "prompt": "What is the speed of light in vacuum symbol? Answer with only the single letter.", "expected": "c", "category": "facts"}
+{"id": 12, "prompt": "How many days are in a leap year? Answer with only the number.", "expected": "366", "category": "facts"}
+{"id": 13, "prompt": "Output the word HELLO in uppercase only.", "expected": "HELLO", "category": "formatting"}
+{"id": 14, "prompt": "Answer exact 42.", "expected": "42", "category": "formatting"}
+{"id": 15, "prompt": "Output the digits 12345 with no spaces.", "expected": "12345", "category": "formatting"}
+{"id": 16, "prompt": "Output the JSON boolean true with no formatting.", "expected": "true", "category": "formatting"}
+{"id": 17, "prompt": "What is the opposite of hot? Answer with a single lowercase word.", "expected": "cold", "category": "formatting"}
+{"id": 18, "prompt": "Multilingual test: Translate 'Hello world' into French. Output only the translation.", "expected": "Bonjour le monde", "category": "multilingual"}
+{"id": 19, "prompt": "Write a python fibonacci snippet: def fib(n).", "expected": "def fib(n): return n if n <= 1 else fib(n-1) + fib(n-2)", "category": "code"}
+{"id": 20, "prompt": "Write a one-line Python lambda that adds 1 to x.", "expected": "lambda x: x + 1", "category": "code"}

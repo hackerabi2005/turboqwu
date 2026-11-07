@@ -12,3 +12,7 @@
 | Phase 1 | P1.3 | Doctor environment & tier selection | `src/kvpipe/doctor.py`, `src/kvpipe/cli.py doctor` | Done | Hardware tier classified (T1-T4, None) with detailed reasons |
 | Phase 1 | P1.4 | Encode support rules in `supports()` | `check_arm_support()` in `doctor.py` | Done | Evaluates engine availability, architecture constraints, and hardware tiers |
 | Phase 1 | P1.5 | Unit test tier mapping & support rules | `tests/test_doctor.py` | Done | 6 unit tests passing across B200, RTX 5090, H100, RTX 4090, and CPU/stub |
+| Phase 2 | P2.1 | Implement engines/vllm.py | `src/kvpipe/engines/vllm.py` | Done | Process lifecycle, health check, log scraping, capacity & dtype parsing |
+| Phase 2 | P2.2 | Define A0 and A1 | `configs/arms/a0_bf16.yaml`, `a1_fp8.yaml` | Done | Identical memory and max-len settings with skip-layers support |
+| Phase 2 | P2.3 | 20 deterministic golden prompts | `tests/golden.jsonl` | Done | Arithmetic, facts, formatting, multilingual, and code snippet categories |
+| Phase 2 | P2.4 | Baseline serving & capacity ratio check | `src/kvpipe/engines/stub.py`, `tests/test_engines.py` | Done | Both arms serve, pass golden prompts, measured capacity ratio A1/A0 = 2.0x (within [1.8, 2.2]) |
