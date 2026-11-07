@@ -16,3 +16,9 @@
 | Phase 2 | P2.2 | Define A0 and A1 | `configs/arms/a0_bf16.yaml`, `a1_fp8.yaml` | Done | Identical memory and max-len settings with skip-layers support |
 | Phase 2 | P2.3 | 20 deterministic golden prompts | `tests/golden.jsonl` | Done | Arithmetic, facts, formatting, multilingual, and code snippet categories |
 | Phase 2 | P2.4 | Baseline serving & capacity ratio check | `src/kvpipe/engines/stub.py`, `tests/test_engines.py` | Done | Both arms serve, pass golden prompts, measured capacity ratio A1/A0 = 2.0x (within [1.8, 2.2]) |
+| Phase 3 | P3.1 | Pinned dataset loaders & synthetic needle | `src/kvpipe/data/loaders.py` | Done | AIME24/25, MATH-500, GPQA, synthetic needle at 4 lengths & 5 depths |
+| Phase 3 | P3.2 | Async streaming sampler with resume | `src/kvpipe/run/sampler.py` | Done | Measures TTFT & TPOT, append-only per-item cache, handles retries |
+| Phase 3 | P3.3 | Answer scorers | `src/kvpipe/run/scoring.py` | Done | Math boxed/numeric normalization, MCQ, and needle exact-substring matching |
+| Phase 3 | P3.4 | Integrity checker & review generator | `src/kvpipe/run/integrity.py` | Done | Flags empty, truncated, corrupt chars, high repetition, and missing boxed answers; writes `artifacts/review/ARM.md` |
+| Phase 3 | P3.5 | Paired bootstrap & power planning | `src/kvpipe/stats.py` | Done | 10k paired bootstrap resamples, 95% CI, PASS/FAIL/INCONCLUSIVE verdict rule |
+| Phase 3 | P3.6-7 | Known-answer test & harness verification | `tests/test_evaluation_harness.py` | Done | All 5 harness tests passing, verified corruption flagging |
