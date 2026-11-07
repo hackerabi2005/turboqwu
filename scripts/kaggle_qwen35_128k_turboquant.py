@@ -2,28 +2,6 @@
 """
 kvpipe x TurboQuant: Qwen/Qwen3.5-0.8B 128K-256K Context & Recall Horizon Benchmark
 Target Hardware: Kaggle 2x NVIDIA T4 GPUs (30 GB total VRAM, SM75 Turing -> float16)
-
-Architecture facts from Qwen/Qwen3.5-0.8B config.json & modeling_qwen3_5.py:
-- 24 total layers (hybrid schedule, full_attention_interval = 4):
-  * 18 layers are `linear_attention` (Qwen3_5GatedDeltaNet):
-    layers [0,1,2, 4,5,6, 8,9,10, 12,13,14, 16,17,18, 20,21,22]
-    -> Fixed recurrent state (16 heads x 128 x 128 fp32 = ~1 MB/layer, ~18 MB total, O(1) in seq_len!)
-  * Only 6 layers are `full_attention` (Qwen3_5Attention):
-    layers [3, 7, 11, 15, 19, 23]
-    -> num_key_value_heads = 2, head_dim = 256, max_position_embeddings = 262,144 (256K)
-    -> FP16 KV footprint = 2 (K,V) * 6 layers * 2 heads * 256 dim * 2 bytes = 12,288 bytes/token (12 KB/tok)
-    -> 128K (131,072) tokens = 1.50 GB FP16 KV cache
-    -> 256K (262,144) tokens = 3.00 GB FP16 KV cache
-
-Why standard vLLM TurboQuant fails on Qwen3.5-0.8B + T4 (PLAN.md Evidence E1, E2, E8):
-1. T4 is SM75 (no native BF16) -> must force torch.float16.
-2. Upstream vLLM built-in `turboquant_*` rejects hybrid GatedDeltaNet + Attention models (E2).
-3. Symmetric low-bit V quantization corrupts Qwen3.5 generation while perplexity looks fine (E8).
-   Fix (Seam L1/L2/L3):
-   - Fast Walsh-Hadamard Transform (FWHT) outlier rotation before quantization (TurboQuant).
-   - Asymmetric K8/V4 precision + Boundary Layer Protection on first/last full-attn layers (3 & 23).
-   - Chunked prefill (4096 tokens/step) so transient attention logits never OOM at 128K-256K on T4.
-   - Integrity check (UTF-8 replacement chars, '????' runs, 4-gram repetition) alongside Needle recall.
 """
 
 from __future__ import annotations
@@ -38,27 +16,26 @@ from typing import Any
 import torch
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from transformers.models.qwen3_5.modeling_qwen3_5 import Qwen3_5DynamicCache
+from transformers.cache_utils import DynamicCache
 
 MODEL_ID = "Qwen/Qwen3.5-0.8B"
 FULL_ATTN_LAYERS = (3, 7, 11, 15, 19, 23)
-BOUNDARY_FULL_ATTN_LAYERS = (3, 23)  # First and last full-attention layers (Evidence E8)
-GROUP_SIZE = 64  # Group size for block-scaled TurboQuant
+BOUNDARY_FULL_ATTN_LAYERS = (3, 23)  # First & last full-attention layers (PLAN.md E8)
+GROUP_SIZE = 64
 
 
 # ---------------------------------------------------------------------------
 # 1. Fast Walsh-Hadamard Transform (FWHT) + Block Quantizers (TurboQuant L1)
 # ---------------------------------------------------------------------------
 def fwht_last_dim(x: torch.Tensor) -> torch.Tensor:
-    """In-place-friendly orthogonal Fast Walsh-Hadamard Transform along last dim (power of 2)."""
+    """Orthogonal Fast Walsh-Hadamard Transform along last dim (head_dim=256)."""
     orig_shape = x.shape
     d = orig_shape[-1]
     y = x.reshape(-1, d).float()
     h = 1
     while h < d:
         y = y.view(-1, d // (2 * h), 2, h)
-        a = y[:, :, 0, :]
-        b = y[:, :, 1, :]
+        a, b = y[:, :, 0, :], y[:, :, 1, :]
         y = torch.stack((a + b, a - b), dim=2)
         h *= 2
     return (y.view(orig_shape) / math.sqrt(d)).to(x.dtype)
@@ -78,8 +55,7 @@ def quant_dequant_tensor(
     if bits >= 16:
         return x, numel * 2
 
-    orig_dtype = x.dtype
-    orig_shape = x.shape
+    orig_dtype, orig_shape = x.dtype, x.shape
     work = fwht_last_dim(x) if use_hadamard else x
 
     flat = work.reshape(-1, group_size).float()
@@ -94,7 +70,6 @@ def quant_dequant_tensor(
     if use_hadamard:
         deq = fwht_last_dim(deq)  # FWHT is symmetric & self-inverse
 
-    # Payload bytes + 2 bytes (FP16 scale) per group
     payload_bytes = int(math.ceil(numel * bits / 8.0))
     scale_bytes = num_groups * 2
     return deq, payload_bytes + scale_bytes
@@ -114,18 +89,18 @@ class ArmSpec:
     evict_budget: int | None = None  # If set, keep sink + recent + high-norm K tokens
 
 
-class TurboQuantHybridCache(Qwen3_5DynamicCache):
+class TurboQuantHybridCache(DynamicCache):
     """
-    Drop-in replacement for Qwen3_5DynamicCache that intercepts full-attention layers
-    (3, 7, 11, 15, 19, 23) while leaving the 18 GatedDeltaNet linear-attention layers intact.
+    Drop-in replacement for transformers.cache_utils.DynamicCache that intercepts
+    full-attention layers (3, 7, 11, 15, 19, 23) while keeping the 18 GatedDeltaNet
+    linear-attention layers intact across both transformers 4.x and 5.x.
     """
 
     def __init__(self, config: Any, arm: ArmSpec):
-        super().__init__(config)
+        super().__init__(config=config)
         self.arm = arm
-        self.quantized_seq_len: dict[int, int] = {i: 0 for i in FULL_ATTN_LAYERS}
-        self.compressed_kv_bytes: dict[int, int] = {i: 0 for i in FULL_ATTN_LAYERS}
-        self.uncompressed_kv_bytes: dict[int, int] = {i: 0 for i in FULL_ATTN_LAYERS}
+        self.compressed_kv_bytes: dict[int, int] = {}
+        self.uncompressed_kv_bytes: dict[int, int] = {}
         self.eviction_events: int = 0
 
     def _layer_bits(self, layer_idx: int) -> tuple[int, int]:
@@ -133,56 +108,73 @@ class TurboQuantHybridCache(Qwen3_5DynamicCache):
             return max(self.arm.k_bits, 8), max(self.arm.v_bits, 8)
         return self.arm.k_bits, self.arm.v_bits
 
+    def _get_kv(self, layer_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+        if hasattr(self, "layers") and layer_idx < len(self.layers):
+            return self.layers[layer_idx].keys, self.layers[layer_idx].values
+        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
+    def _set_kv(self, layer_idx: int, k: torch.Tensor, v: torch.Tensor) -> None:
+        if hasattr(self, "layers") and layer_idx < len(self.layers):
+            self.layers[layer_idx].keys = k
+            self.layers[layer_idx].values = v
+        else:
+            self.key_cache[layer_idx] = k
+            self.value_cache[layer_idx] = v
+
     def update(
         self,
         key_states: torch.Tensor,
         value_states: torch.Tensor,
         layer_idx: int,
-        cache_kwargs: dict[str, Any] | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        k_Bits, v_Bits = self._layer_bits(layer_idx)
+        k_bits, v_bits = self._layer_bits(layer_idx)
 
-        # Quantize only the newly arriving chunk before appending to cache
-        q_k, k_bytes = quant_dequant_tensor(key_states, k_Bits, use_hadamard=self.arm.hadamard)
-        q_v, v_bytes = quant_dequant_tensor(value_states, v_Bits, use_hadamard=self.arm.hadamard)
+        q_k, k_bytes = quant_dequant_tensor(key_states, k_bits, use_hadamard=self.arm.hadamard)
+        q_v, v_bytes = quant_dequant_tensor(value_states, v_bits, use_hadamard=self.arm.hadamard)
 
-        if self.key_cache[layer_idx] is None:
-            self.key_cache[layer_idx] = q_k
-            self.value_cache[layer_idx] = q_v
-        else:
-            self.key_cache[layer_idx] = torch.cat([self.key_cache[layer_idx], q_k], dim=-2)
-            self.value_cache[layer_idx] = torch.cat([self.value_cache[layer_idx], q_v], dim=-2)
+        keys, values = super().update(q_k, q_v, layer_idx, *args, **kwargs)
 
-        self.compressed_kv_bytes[layer_idx] += k_bytes + v_bytes
-        self.uncompressed_kv_bytes[layer_idx] += (key_states.numel() + value_states.numel()) * 2
+        self.compressed_kv_bytes[layer_idx] = self.compressed_kv_bytes.get(layer_idx, 0) + k_bytes + v_bytes
+        self.uncompressed_kv_bytes[layer_idx] = (
+            self.uncompressed_kv_bytes.get(layer_idx, 0) + (key_states.numel() + value_states.numel()) * 2
+        )
 
-        # Optional Seam L2 Eviction (Sink + Recent Window + Top Key-Norm Attention Bridges)
-        if self.arm.evict_budget is not None:
-            cur_len = self.key_cache[layer_idx].shape[-2]
-            if cur_len > self.arm.evict_budget:
-                self._apply_eviction(layer_idx, self.arm.evict_budget)
+        return keys, values
 
-        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+    def evict_if_needed(self) -> None:
+        """Run KV eviction between forward steps so causal mask dimensions always match KV length."""
+        if self.arm.evict_budget is None:
+            return
+        for layer_idx in FULL_ATTN_LAYERS:
+            if layer_idx < len(self.layers) or (hasattr(self, "key_cache") and layer_idx < len(self.key_cache)):
+                k, _ = self._get_kv(layer_idx)
+                if k is not None and k.numel() > 0 and k.shape[-2] > self.arm.evict_budget:
+                    self._apply_eviction(layer_idx, self.arm.evict_budget)
 
-    def _apply_eviction(self, layer_idx: int, budget: int) -> None:
-        k = self.key_cache[layer_idx]
-        v = self.value_cache[layer_idx]
+    def _apply_eviction(self, layer_idx: int, budget: int) -> tuple[torch.Tensor, torch.Tensor]:
+        k, v = self._get_kv(layer_idx)
         seq_len = k.shape[-2]
         if seq_len <= budget:
-            return
+            return k, v
 
-        sink = 128
-        recent = 1024
+        sink = min(128, budget // 4)
+        recent = min(1024, budget // 2)
         mid_budget = max(0, budget - sink - recent)
 
         if mid_budget > 0 and seq_len > (sink + recent):
-            # Score middle tokens by L2 norm across heads & rotary/non-rotary dims (TriAttention proxy)
             mid_k = k[:, :, sink : seq_len - recent, :]
             scores = mid_k.float().norm(dim=-1).mean(dim=1)  # [batch, mid_len]
             topk_idx = scores.topk(mid_budget, dim=-1).indices.sort(dim=-1).values[0] + sink
-            sink_idx = torch.arange(0, sink, device=k.device)
-            recent_idx = torch.arange(seq_len - recent, seq_len, device=k.device)
-            keep_idx = torch.cat([sink_idx, topk_idx, recent_idx], dim=0)
+            keep_idx = torch.cat(
+                [
+                    torch.arange(0, sink, device=k.device),
+                    topk_idx,
+                    torch.arange(seq_len - recent, seq_len, device=k.device),
+                ],
+                dim=0,
+            )
         else:
             keep_idx = torch.cat(
                 [
@@ -192,26 +184,26 @@ class TurboQuantHybridCache(Qwen3_5DynamicCache):
                 dim=0,
             )
 
-        self.key_cache[layer_idx] = k.index_select(-2, keep_idx)
-        self.value_cache[layer_idx] = v.index_select(-2, keep_idx)
+        new_k = k.index_select(-2, keep_idx)
+        new_v = v.index_select(-2, keep_idx)
+        self._set_kv(layer_idx, new_k, new_v)
         self.eviction_events += 1
 
-        # Recompute compressed bytes for retained tokens
         k_bits, v_bits = self._layer_bits(layer_idx)
-        retained_numel = self.key_cache[layer_idx].numel()
-        num_groups = retained_numel // GROUP_SIZE
+        retained_numel = new_k.numel()
+        num_groups = max(1, retained_numel // GROUP_SIZE)
         k_b = int(math.ceil(retained_numel * k_bits / 8.0)) + num_groups * 2 if k_bits < 16 else retained_numel * 2
         v_b = int(math.ceil(retained_numel * v_bits / 8.0)) + num_groups * 2 if v_bits < 16 else retained_numel * 2
         self.compressed_kv_bytes[layer_idx] = k_b + v_b
+        return new_k, new_v
 
     def summary_metrics(self) -> dict[str, float]:
         raw_b = sum(self.uncompressed_kv_bytes.values())
         comp_b = sum(self.compressed_kv_bytes.values())
-        ratio = raw_b / max(comp_b, 1)
         return {
             "fp16_kv_mb": raw_b / (1024**2),
             "compressed_kv_mb": comp_b / (1024**2),
-            "kv_compression_ratio": ratio,
+            "kv_compression_ratio": raw_b / max(comp_b, 1),
             "eviction_events": float(self.eviction_events),
         }
 
@@ -242,10 +234,6 @@ def build_multi_needle_prompt(
     target_tokens: int,
     depths: list[float] = [0.10, 0.30, 0.50, 0.70, 0.90],
 ) -> tuple[torch.Tensor, dict[float, str]]:
-    """
-    Constructs an exact-length token tensor up to 256K tokens in <0.5s by tiling
-    tokenized haystack blocks and splicing 5 depth-indexed secret passkeys.
-    """
     haystack_sentence = (
         "Distributed systems rely on consensus protocols, bounded replication logs, "
         "and deterministic state machines to preserve fault tolerance under network partitions. "
@@ -255,7 +243,7 @@ def build_multi_needle_prompt(
     needles: dict[float, str] = {}
     needle_ids_map: dict[float, list[int]] = {}
     for d in depths:
-        code = f"TQ-{int(d * 100):02d}-{target_tokens // 1024}K"
+        code = f"TQ-{int(d * 100):02d}-{max(1, target_tokens // 1024)}K"
         needles[d] = code
         needle_str = (
             f"\n[CRITICAL ARCHIVE FACT AT DEPTH {int(d * 100)}%]: "
@@ -266,21 +254,21 @@ def build_multi_needle_prompt(
     question_str = (
         "\n\n=== VERIFICATION QUERY ===\n"
         "List the exact secret vault authorization keys for sectors 10, 30, 50, 70, and 90 "
-        "in order, separated by commas.\nAnswer: The keys are "
+        "in order, separated by commas.\n"
     )
     bos_ids = tokenizer.encode("<|im_start|>user\n", add_special_tokens=False)
-    q_ids = tokenizer.encode(question_str + "<|im_end|>\n<|im_start|>assistant\n<think>\n</think>\nThe keys are ", add_special_tokens=False)
+    q_ids = tokenizer.encode(
+        question_str + "<|im_end|>\n<|im_start|>assistant\n<think>\n</think>\nThe keys are ",
+        add_special_tokens=False,
+    )
 
     reserved = len(bos_ids) + len(q_ids) + sum(len(v) for v in needle_ids_map.values())
-    filler_budget = max(512, target_tokens - reserved)
+    filler_budget = max(64, target_tokens - reserved)
 
-    # Build filler array rapidly
     repeats = (filler_budget // len(block_ids)) + 2
     filler = (block_ids * repeats)[:filler_budget]
 
-    # Splice needles at exact depth positions from back to front
-    sorted_depths = sorted(depths, reverse=True)
-    for d in sorted_depths:
+    for d in sorted(depths, reverse=True):
         pos = min(len(filler), max(0, int(len(filler) * d)))
         filler[pos:pos] = needle_ids_map[d]
 
@@ -297,13 +285,9 @@ def evaluate_arm_at_context(
     chunk_size: int = 4096,
     max_new_tokens: int = 64,
 ) -> dict[str, Any]:
-    """
-    Runs chunked prefill (4096 tokens/step) using TurboQuantHybridCache so 128K-256K
-    sequences fit easily inside 2x T4 GPUs without materializing an [L, L] attention matrix.
-    """
     gc.collect()
-    torch.cuda.empty_cache()
     if torch.cuda.is_available():
+        torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
 
     input_ids, needles = build_multi_needle_prompt(tokenizer, context_len)
@@ -314,7 +298,7 @@ def evaluate_arm_at_context(
     cache = TurboQuantHybridCache(text_config, arm=arm)
 
     t0 = time.perf_counter()
-    # Chunked prefill for all tokens except the very last one
+    # Chunked prefill so 128K-256K sequences never OOM on 2x T4 GPUs
     for start in range(0, seq_len - 1, chunk_size):
         end = min(start + chunk_size, seq_len - 1)
         chunk = input_ids[:, start:end].to(first_device)
@@ -324,11 +308,14 @@ def evaluate_arm_at_context(
             use_cache=True,
             logits_to_keep=1,
         )
+        cache.evict_if_needed()
         del out, chunk
 
     # Final prefill token + greedy decoding loop
     next_token = input_ids[:, -1:].to(first_device)
     generated_ids: list[int] = []
+    eos_id = getattr(tokenizer, "eos_token_id", None)
+
     for _ in range(max_new_tokens):
         out = model(
             input_ids=next_token,
@@ -339,13 +326,13 @@ def evaluate_arm_at_context(
         next_token = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         tok_id = int(next_token.item())
         generated_ids.append(tok_id)
-        if tok_id == tokenizer.eos_token_id:
+        cache.evict_if_needed()
+        if eos_id is not None and tok_id == eos_id:
             break
 
     elapsed = time.perf_counter() - t0
     output_text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
-    # Score needle recall across depths
     depth_hits: dict[str, bool] = {}
     for d, code in needles.items():
         depth_hits[f"{int(d * 100)}%"] = code in output_text
@@ -361,7 +348,8 @@ def evaluate_arm_at_context(
 
     del cache, input_ids
     gc.collect()
-    torch.cuda.empty_cache()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     return {
         "arm_id": arm.id,
@@ -381,9 +369,6 @@ def evaluate_arm_at_context(
     }
 
 
-# ---------------------------------------------------------------------------
-# 5. Main Execution Suite (Pushes up to 128K & 256K Native Qwen3.5 Limit)
-# ---------------------------------------------------------------------------
 def main() -> None:
     print("=" * 88)
     print(f"kvpipe x TurboQuant: {MODEL_ID} Long-Context Recall & Compression Suite")
@@ -399,13 +384,12 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype=torch.float16,  # Mandatory for T4 (SM75 lacks native bfloat16)
+        dtype=torch.float16,
         device_map="auto",
         attn_implementation="sdpa",
     )
     model.eval()
 
-    # Arms grounded in PLAN.md Evidence E1, E2, E4, E8:
     arms = [
         ArmSpec(id="A0", name="Baseline FP16 (K16/V16)", k_bits=16, v_bits=16),
         ArmSpec(id="A1", name="FP8 Symmetric (K8/V8)", k_bits=8, v_bits=8),
@@ -436,7 +420,7 @@ def main() -> None:
         ),
     ]
 
-    # Context lengths up to 128K (131,072) and optional 256K (262,144)
+    # Add 262144 to context_lengths to test full 256K native horizon
     context_lengths = [8192, 32768, 65536, 131072]
 
     all_results: list[dict[str, Any]] = []
@@ -454,7 +438,6 @@ def main() -> None:
                 f"VRAM: {res['peak_vram_gb']:4.2f}GB | {res['time_s']:5.1f}s"
             )
 
-    # Final Summary Table comparing Accuracy Loss vs Baseline A0
     print("\n" + "=" * 100)
     print("FINAL KVPIPE DECISION REPORT: COMPRESSION RATIO vs. RECALL HORIZON & ACCURACY LOSS")
     print("=" * 100)
