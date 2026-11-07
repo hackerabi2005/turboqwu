@@ -12,8 +12,9 @@ from rich.table import Table
 from kvpipe.calib import resolve_calibration_stats
 from kvpipe.config import GateThresholds, load_arm_config, load_gates_config, load_suite_config
 from kvpipe.data.loaders import load_suite_data
-from kvpipe.decide import evaluate_arm_gates, select_best_arm
+from kvpipe.decide import evaluate_arm_gates, recommend_for_profile, select_best_arm
 from kvpipe.doctor import detect_environment, run_doctor
+from kvpipe.engines.llamacpp import LlamaCppEngine
 from kvpipe.engines.sglang import SGLangEngine
 from kvpipe.engines.stub import StubEngine
 from kvpipe.engines.trtllm import TRTLLMEngine
@@ -152,6 +153,8 @@ def run(arm_id: str, suite_id: str, use_stub: bool | None, port: int) -> None:
     use_stub_engine = use_stub if use_stub is not None else (arm_cfg.engine == "stub" or env.get("detected_tier") == "None")
     if use_stub_engine:
         engine = StubEngine()
+    elif arm_cfg.engine == "llamacpp":
+        engine = LlamaCppEngine()
     elif arm_cfg.engine == "sglang":
         engine = SGLangEngine()
     elif arm_cfg.engine == "trtllm":
@@ -250,6 +253,7 @@ def report(output_dir: str) -> None:
         evaluated_arms.append({
             "arm_id": arm_cfg.id,
             "role": arm_cfg.role,
+            "simulated": True,
             "dtype_gain": dtype_gain,
             "eviction_ratio": eviction_ratio,
             "capacity_ratio": cap_ratio,
@@ -371,6 +375,47 @@ def regress(arm_id: str) -> None:
             raise click.ClickException("Regression check failed.")
     finally:
         h.stop()
+
+
+@main.command()
+@click.option(
+    "--profile",
+    type=click.Choice(["auto", "think", "longctx", "chat", "max"], case_sensitive=False),
+    default="auto",
+    help="Workload category profile to recommend optimal KV compression for.",
+)
+@click.option("--json", "json_output", is_flag=True, default=False, help="Output recommendation as JSON")
+def recommend(profile: str, json_output: bool) -> None:
+    """Recommend the best KV-cache compression arm per workload profile (think | longctx | chat | max | auto)."""
+    rec = recommend_for_profile(profile)
+    if json_output:
+        click.echo(json.dumps(rec, indent=2))
+        return
+
+    if rec["selected_profile"] == "auto":
+        table = Table(title="kvpipe Best KV-Cache Compression by Workload Category")
+        table.add_column("Profile", style="bold cyan")
+        table.add_column("Workload Category")
+        table.add_column("Best Arm", style="bold green")
+        table.add_column("Fallback")
+        table.add_column("Expected Compression")
+        table.add_column("Policy / Rationale")
+        for key, info in rec["profiles"].items():
+            table.add_row(
+                key.upper(),
+                info["name"],
+                info["recommended_arm"],
+                info["fallback_arm"],
+                info["expected_compression"],
+                info["rationale"],
+            )
+        console.print(table)
+    else:
+        console.print(f"[bold cyan]Profile:[/bold cyan] {rec['name']} ({rec['selected_profile'].upper()})")
+        console.print(f"[bold green]Recommended Arm:[/bold green] {rec['recommended_arm']} (Fallback: {rec['fallback_arm']})")
+        console.print(f"[bold]KV Dtype:[/bold] {rec['kv_dtype']} | [bold]Eviction Policy:[/bold] {rec['eviction_policy']}")
+        console.print(f"[bold]Expected Compression:[/bold] {rec['expected_compression']}")
+        console.print(f"[bold]Rationale:[/bold] {rec['rationale']}")
 
 
 if __name__ == "__main__":

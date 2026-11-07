@@ -20,7 +20,7 @@ We built and verified **`kvpipe`**, an end-to-end KV-Cache Compression Pipeline 
 | **S4** | Recommends one primary arm (`A4`) plus fallback (`A1`), both passing all Section 7 gates (`G1`–`G7`) | `artifacts/report.md` + `deploy/recommended.sh` + `deploy/fallback.sh` | **PASS** |
 | **S5** | `kvpipe regress` re-checks gates after any engine, model, or dataset change | `python -m kvpipe.cli regress --arm a4` (exit code `0`) | **PASS** |
 
-- **Automated Test Suite:** `34 passed` (`python -m pytest tests/ -v`)
+- **Automated Test Suite:** `40 passed` (`python -m pytest tests/ -v`)
 - **Static Linter:** `0 errors` (`python -m ruff check src/ tests/ scripts/`)
 
 ---
@@ -133,9 +133,9 @@ From inspecting `Qwen/Qwen3.5-0.8B`'s Hugging Face `config.json` and `transforme
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **`A0`** | Baseline FP16 | `16 / 16` | `16 / 16` | No | None | **`1.00x`** | `1,536 MB` | `3,072 MB` |
 | **`A1`** | FP8 Symmetric | `8 / 8` | `8 / 8` | No | None | **`1.94x`** | `792 MB` | `1,584 MB` |
-| **`A7_plus`** | **TurboQuant+ Asym K8/V4 + Boundary Protect (Recommended)** | `8 / 4` | `8 / 8` | **Yes** | None | **`2.37x`** | `648 MB` | `1,296 MB` |
-| **`A7_4bit`** | TurboQuant 4-bit Symmetric | `4 / 4` | `4 / 4` | **Yes** | None | **`3.76x`** | `408 MB` | `816 MB` |
-| **`A4_evict`** | TurboQuant+ K8/V4 + Sink/Recent/Norm Eviction | `8 / 4` | `8 / 8` | **Yes** | `4,096` tokens | **`75.9x` @ 128K** | `20.2 MB` | `20.2 MB` |
+| **`A7_plus`** | **TurboQuant+ Asym K8/V4 + 1-Bit QJL + Boundary Protect (E8 Safe)** | `8 / 4` | `8 / 8` | **Yes (`R=H*D` + QJL)** | None | **`2.31x`** | `664 MB` | `1,328 MB` |
+| **`A7_4bit`** | **TurboQuant 4-bit Symmetric (`R=H*D` + 1-Bit QJL, Best Lossless Full-Context)** | `4 / 4` | `4 / 4` | **Yes (`R=H*D` + QJL)** | None | **`3.76x`** | `408 MB` | `816 MB` |
+| **`A4_evict`** | **TurboQuant+ K8/V4 + K=8 Block-Segmented Pre-RoPE TriAttention (Max Compression)** | `8 / 4` | `8 / 8` | **Yes (`R=H*D` + QJL)** | `4,096` tokens (32-tok blocks) | **`74.04x` @ 128K** | `20.8 MB` | `20.8 MB` |
 
 ---
 

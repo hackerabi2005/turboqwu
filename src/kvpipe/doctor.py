@@ -154,6 +154,10 @@ def check_arm_support(arm: ArmConfig, env: dict[str, Any]) -> Tuple[bool, str]:
     pkgs = env.get("packages", {})
 
     # Check engine installation
+    if arm.engine == "llamacpp":
+        if not shutil.which("llama-server") and not os.environ.get("LLAMA_SERVER_BIN"):
+            return False, "Engine 'llama-server' binary not found in PATH"
+        return True, "Supported (llama.cpp engine)"
     if arm.engine == "vllm" and not pkgs.get("vllm"):
         return False, "Engine 'vllm' is not installed"
     if arm.engine == "sglang" and not pkgs.get("sglang"):
