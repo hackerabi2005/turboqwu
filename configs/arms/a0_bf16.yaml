@@ -1,0 +1,12 @@
+id: A0
+role: reference
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: auto
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args: []
+expected_notes: "Baseline full precision KV cache"

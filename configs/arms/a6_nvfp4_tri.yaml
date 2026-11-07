@@ -1,0 +1,22 @@
+id: A6
+role: unverified_combination
+engine: sglang
+model: Qwen/Qwen3-8B-FP8
+model_revision: main
+weights_dtype: fp8
+kv_dtype: nvfp4
+compression:
+  method: triattention
+  budget: 3072
+  protect_prompt: true
+  stats_path: third_party/triattention/triattention/calibration/for_aime25_experiment/qwen3_8b.pt
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args:
+    - "--prefill-attention-backend"
+    - "flashinfer"
+    - "--decode-attention-backend"
+    - "trtllm_mha"
+    - "--enable-metrics"
+expected_notes: "Unverified combination: NVFP4 + TriAttention on SGLang"

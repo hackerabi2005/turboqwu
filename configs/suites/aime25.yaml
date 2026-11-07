@@ -1,0 +1,12 @@
+id: aime25
+name: "AIME 2025"
+dataset_id: "open-thoughts/AIME-2025"
+revision: "main"
+split: "test"
+sample_count: 30
+samples_per_problem: 16
+seed: 42
+reasoning_mode: true
+temperature: 0.6
+top_p: 0.95
+max_tokens: 32768

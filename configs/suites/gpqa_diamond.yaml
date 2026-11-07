@@ -1,0 +1,12 @@
+id: gpqa_diamond
+name: "GPQA Diamond"
+dataset_id: "Idavidrein/gpqa"
+revision: "main"
+split: "train"
+sample_count: 198
+samples_per_problem: 8
+seed: 42
+reasoning_mode: true
+temperature: 0.6
+top_p: 0.95
+max_tokens: 32768

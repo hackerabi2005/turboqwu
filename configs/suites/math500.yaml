@@ -1,0 +1,12 @@
+id: math500
+name: "MATH-500"
+dataset_id: "HuggingFaceH4/MATH-500"
+revision: "main"
+split: "test"
+sample_count: 500
+samples_per_problem: 8
+seed: 42
+reasoning_mode: true
+temperature: 0.6
+top_p: 0.95
+max_tokens: 32768

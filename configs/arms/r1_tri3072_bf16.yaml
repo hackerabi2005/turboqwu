@@ -1,0 +1,21 @@
+id: R1
+role: paper_reproduction
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: auto
+compression:
+  method: triattention
+  budget: 3072
+  protect_prompt: true
+  stats_path: third_party/triattention/triattention/calibration/for_aime25_experiment/qwen3_8b.pt
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args:
+    - "--enforce-eager"
+    - "--no-enable-prefix-caching"
+    - "--max-num-batched-tokens"
+    - "1024"
+expected_notes: "Paper reproduction parity on AIME25"

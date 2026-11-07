@@ -1,0 +1,12 @@
+id: A7
+role: fallback_non_eviction
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: turboquant_4bit_nc
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args: []
+expected_notes: "TurboQuant 4bit_nc fallback, 1 to 4 pts loss, 25% less throughput"

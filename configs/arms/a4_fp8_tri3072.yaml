@@ -1,0 +1,22 @@
+id: A4
+role: reasoning_candidate_target
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: fp8
+skip_layers: sliding_window
+compression:
+  method: triattention
+  budget: 3072
+  protect_prompt: true
+  stats_path: third_party/triattention/triattention/calibration/for_aime25_experiment/qwen3_8b.pt
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args:
+    - "--enforce-eager"
+    - "--no-enable-prefix-caching"
+    - "--max-num-batched-tokens"
+    - "1024"
+expected_notes: "Target reasoning arm (FP8 + Tri3072)"

@@ -1,0 +1,9 @@
+PLAN.md
+pyproject.toml
+src/kvpipe/__init__.py
+src/kvpipe.egg-info/PKG-INFO
+src/kvpipe.egg-info/SOURCES.txt
+src/kvpipe.egg-info/dependency_links.txt
+src/kvpipe.egg-info/entry_points.txt
+src/kvpipe.egg-info/requires.txt
+src/kvpipe.egg-info/top_level.txt

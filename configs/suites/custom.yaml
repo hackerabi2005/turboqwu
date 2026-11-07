@@ -1,0 +1,12 @@
+id: custom
+name: "Custom Owner Workload"
+dataset_id: "local/custom"
+revision: "main"
+split: "default"
+sample_count: 50
+samples_per_problem: 1
+seed: 42
+reasoning_mode: false
+temperature: 0.0
+top_p: 1.0
+max_tokens: 4096

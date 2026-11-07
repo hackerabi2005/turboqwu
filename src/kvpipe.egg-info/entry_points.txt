@@ -1,0 +1,2 @@
+[console_scripts]
+kvpipe = kvpipe.cli:main

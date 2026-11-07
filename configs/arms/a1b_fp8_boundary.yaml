@@ -1,0 +1,13 @@
+id: A1b
+role: fallback
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: fp8
+skip_layers: first2_last2
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args: []
+expected_notes: "FP8 KV with first 2 and last 2 boundary layers in BF16"

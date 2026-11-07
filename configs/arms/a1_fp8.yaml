@@ -1,0 +1,13 @@
+id: A1
+role: default_recommendation
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: fp8
+skip_layers: sliding_window
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args: []
+expected_notes: "2x capacity, within 1-2 points accuracy"

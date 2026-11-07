@@ -1,0 +1,12 @@
+id: retrieval_needle
+name: "Needle In A Haystack"
+dataset_id: "synthetic/needle"
+revision: "main"
+split: "test"
+sample_count: 20
+samples_per_problem: 1
+seed: 42
+reasoning_mode: false
+temperature: 0.0
+top_p: 1.0
+max_tokens: 512

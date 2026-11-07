@@ -1,0 +1,26 @@
+# Compatibility matrix for kvpipe (PLAN.md Section 3.2)
+combinations:
+  fp8_alone:
+    vllm: "validated"
+    sglang: "supported"
+    trtllm: "documented"
+  nvfp4_alone:
+    vllm: "not_verified"
+    sglang: "experimental_validated"
+    trtllm: "documented"
+  triattention_alone:
+    vllm: "official_plugin"
+    sglang: "official_backend"
+    trtllm: "native_sm100"
+  fp8_triattention:
+    vllm: "untested_combination"
+    sglang: "untested"
+    trtllm: "untested"
+  nvfp4_triattention:
+    vllm: "not_available"
+    sglang: "untested"
+    trtllm: "untested"
+  turboquant_triattention:
+    vllm: "untested_experimental"
+    sglang: "not_available"
+    trtllm: "not_available"

@@ -1,0 +1,22 @@
+id: A3
+role: reasoning_candidate
+engine: vllm
+model: Qwen/Qwen3-8B
+model_revision: main
+weights_dtype: bf16
+kv_dtype: fp8
+skip_layers: sliding_window
+compression:
+  method: triattention
+  budget: 4096
+  protect_prompt: true
+  stats_path: third_party/triattention/triattention/calibration/for_aime25_experiment/qwen3_8b.pt
+serve:
+  gpu_memory_utilization: 0.90
+  max_model_len: 32768
+  extra_args:
+    - "--enforce-eager"
+    - "--no-enable-prefix-caching"
+    - "--max-num-batched-tokens"
+    - "1024"
+expected_notes: "FP8 + TriAttention 4096, within 2.5 points"
