@@ -34,3 +34,10 @@
 | Phase 6 | P6.4 | Fidelity signal diagnostics | `src/kvpipe/probes.py` | Done | Greedy-decode agreement & logprob divergence against A0 |
 | Phase 6 | P6.5 | SGLang adapter & Arm A2 (NVFP4) | `src/kvpipe/engines/sglang.py` | Done | Blackwell NVFP4 launch commands & metrics integration |
 | Phase 6 | P6.6-7 | TurboQuant 4bit & KVzap | `configs/arms/a7_turboquant_4bit.yaml`, `a8_kvzap.yaml` | Done | Validated architecture guards and configs |
+| Phase 7 | P7.1 | Gate evaluation & best arm selection | `src/kvpipe/decide.py` | Done | Evaluates G1-G7, selects highest compression passing arm, break ties on throughput, names safe fallback |
+| Phase 7 | P7.2 | Comprehensive reporting | `src/kvpipe/report.py` | Done | Generates `artifacts/report.md` & `artifacts/report.json` with compression, CIs, integrity, verdicts, diagnostics |
+| Phase 7 | P7.3 | Claims audit command | `kvpipe audit` | Done | Validates every number and metric links to run ID and existing artifact path on disk |
+| Phase 7 | P7.4 | Deployment script generator | `deploy/recommended.sh`, `deploy/fallback.sh` | Done | Generated production launch scripts for recommended and fallback arms |
+| Phase 8 | P8.1 | Regression CLI command | `kvpipe regress` | Done | Re-evaluates 20 golden prompts, canary eviction, and reduced suite |
+| Phase 8 | P8.2-3 | Canary rollout & monitoring rules | `src/kvpipe/regress.py` | Done | 5% canary traffic monitoring with automatic rollback triggers (0.5 pt integrity breach, p95 TPOT) |
+| Phase 8 | P8.4 | System documentation & runbook | `README.md`, `RUNBOOK.md`, `DECISIONS.md` | Done | Full quickstart, operations runbook, and architectural decisions |

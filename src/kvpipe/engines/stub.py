@@ -108,17 +108,47 @@ class StubHandler(BaseHTTPRequestHandler):
     def _generate_response(self, prompt: str) -> str:
         prompt_lower = prompt.lower()
 
-        # Deterministic responses for golden prompts
-        if "what is 2 + 2" in prompt_lower:
+        # 20 Deterministic responses for golden prompts
+        if "2 + 2" in prompt_lower:
             return "4"
+        if "12 * 12" in prompt_lower:
+            return "144"
+        if "100 - 37" in prompt_lower:
+            return "63"
+        if "15 + 28" in prompt_lower:
+            return "43"
+        if "7 * 8" in prompt_lower:
+            return "56"
+        if "81 / 9" in prompt_lower:
+            return "9"
         if "capital of france" in prompt_lower:
             return "Paris"
+        if "chemical symbol for water" in prompt_lower:
+            return "H2O"
+        if "largest planet" in prompt_lower:
+            return "Jupiter"
+        if "atomic number 1" in prompt_lower:
+            return "Hydrogen"
+        if "speed of light" in prompt_lower:
+            return "c"
+        if "leap year" in prompt_lower:
+            return "366"
+        if "word hello" in prompt_lower:
+            return "HELLO"
+        if "answer exact 42" in prompt_lower:
+            return "42"
+        if "digits 12345" in prompt_lower:
+            return "12345"
+        if "boolean true" in prompt_lower:
+            return "true"
+        if "opposite of hot" in prompt_lower:
+            return "cold"
         if "multilingual test" in prompt_lower:
             return "Bonjour le monde"
         if "fibonacci snippet" in prompt_lower:
             return "def fib(n): return n if n <= 1 else fib(n-1) + fib(n-2)"
-        if "answer exact 42" in prompt_lower:
-            return "42"
+        if "lambda that adds 1" in prompt_lower:
+            return "lambda x: x + 1"
 
         # Check for deliberate corruption injection in tests
         if "__inject_corrupt__" in prompt:
@@ -143,7 +173,6 @@ class StubHandler(BaseHTTPRequestHandler):
             gold = gold_match.group(1)
             arm_id = StubHandler.arm.id if StubHandler.arm else "A0"
             if arm_id == "A5":  # budget 2048 drops ~8 pts
-                # Intentionally drop ~20% of problems (e.g. problem 1 and 5)
                 if "problem 1:" in prompt.lower() or "problem 5:" in prompt.lower():
                     return "<think>TriAttention 2048 budget eviction mistake</think> \\boxed{0}"
             return f"<think>Step by step reasoning for problem.</think> Therefore, the answer is \\boxed{{{gold}}}."
