@@ -28,3 +28,9 @@
 | Phase 5 | P5.3 | Eviction events tracking & G4 validation | `eviction_events()` in `base.py`, `vllm.py`, `stub.py` | Done | Checks received and applied eviction events > 0 |
 | Phase 5 | P5.4 | TensorRT-LLM adapter (T1 Blackwell) | `src/kvpipe/engines/trtllm.py` | Done | Supports B200 TRTLLM TriAttention config with KV pages plateau monitoring |
 | Phase 5 | P5.5-6 | Canary C1 verification & R1 reproduction | `tests/test_triattention_arms.py` | Done | Canary C1 drops > 10 pts; R1 reproduces A0 within 5 pts; A5 budget 2048 degrades accuracy |
+| Phase 6 | P6.1 | K/V norm profiling | `src/kvpipe/profile.py` | Done | Measures per-layer key/val norm ratios and quant risk |
+| Phase 6 | P6.2 | Arm A1b config (boundary layers) | `configs/arms/a1b_fp8_boundary.yaml` | Done | First 2 and last 2 layers protected in higher precision |
+| Phase 6 | P6.3 | Position probes | `src/kvpipe/probes.py` | Done | Prompt depth needle (10%, 50%, 90%) & generated memory probe |
+| Phase 6 | P6.4 | Fidelity signal diagnostics | `src/kvpipe/probes.py` | Done | Greedy-decode agreement & logprob divergence against A0 |
+| Phase 6 | P6.5 | SGLang adapter & Arm A2 (NVFP4) | `src/kvpipe/engines/sglang.py` | Done | Blackwell NVFP4 launch commands & metrics integration |
+| Phase 6 | P6.6-7 | TurboQuant 4bit & KVzap | `configs/arms/a7_turboquant_4bit.yaml`, `a8_kvzap.yaml` | Done | Validated architecture guards and configs |

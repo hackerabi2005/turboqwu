@@ -132,10 +132,10 @@ class StubHandler(BaseHTTPRequestHandler):
         if StubHandler.arm and StubHandler.arm.id == "C1":
             return "<think>Canary compressed cache degradation</think> The answer is \\boxed{99999}."
 
-        # Needle in a haystack response
-        needle_match = re.search(r"special key is ([a-zA-Z0-9_-]+)", prompt)
+        # Needle in a haystack response / prompt probe
+        needle_match = re.search(r"(?:special key|verification code|code)\s+(?:is|:)\s*([a-zA-Z0-9_-]+)", prompt, re.IGNORECASE)
         if needle_match:
-            return f"The special key is {needle_match.group(1)}."
+            return f"The code is {needle_match.group(1)}."
 
         # Math / AIME / Math500 prompt: check if ground truth is embedded or hash-based
         gold_match = re.search(r"\[GOLD:([^\]]+)\]", prompt)
