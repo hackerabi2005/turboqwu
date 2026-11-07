@@ -58,6 +58,10 @@ class TRTLLMEngine(Engine):
         return check_arm_support(arm, env)
 
     def launch(self, arm: ArmConfig, port: int = 8000, log_dir: str = "artifacts/logs") -> EngineHandle:
+        if arm.compression.method == "triattention":
+            budget = arm.compression.budget or 3072
+            if not (1 <= budget <= 16384):
+                raise ValueError(f"TRT-LLM TriAttention budget must be in [1, 16384], got {budget}")
         # In actual T1 environment, executes Python script importing tensorrt_llm LLM
         # with KvCacheConfig(use_kv_cache_manager_v2=True) and TriAttentionKvCacheCompressionConfig(...)
         return TRTLLMHandle(arm=arm, port=port, capacity_tokens=65536, eviction_received=16, eviction_applied=16)

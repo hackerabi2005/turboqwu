@@ -49,7 +49,10 @@ def generate_reports(
     for a in evaluated_arms:
         arm_id = a.get("arm_id", "")
         role = a.get("role", "")
-        cap = f"{a.get('capacity_ratio', 1.0):.2f}x"
+        if "dtype_gain" in a and "eviction_ratio" in a and a.get("eviction_ratio", 1.0) > 1.0:
+            cap = f"{a.get('capacity_ratio', 1.0):.2f}x ({a.get('dtype_gain', 1.0):.2f}x*{a.get('eviction_ratio', 1.0):.2f}x)"
+        else:
+            cap = f"{a.get('capacity_ratio', 1.0):.2f}x"
         ci = f"{a.get('mean_delta', 0.0):+.2f} [{a.get('ci_lower', 0.0):+.2f}, {a.get('ci_upper', 0.0):+.2f}]"
         integ = f"{a.get('integrity_pass_rate', 100.0):.1f}%"
         tps = f"{a.get('throughput', 0.0):.1f}"
@@ -101,6 +104,40 @@ def audit_report_claims(report_data: dict[str, Any]) -> tuple[bool, list[str]]:
         elif not Path(art_path).exists():
             errors.append(f"Arm {arm_id} artifact_path '{art_path}' does not exist on disk")
 
+    return len(errors) == 0, errors
+
+
+def audit_markdown_report(md_content: str) -> tuple[bool, list[str]]:
+    """Audit table claims in Markdown report for run ID and existing artifact path."""
+    errors: list[str] = []
+    lines = md_content.splitlines()
+    in_table = False
+    checked_rows = 0
+    for line in lines:
+        line_clean = line.strip()
+        if "| Run ID |" in line_clean and "| Artifact Path |" in line_clean:
+            in_table = True
+            continue
+        if in_table and line_clean.startswith("|---"):
+            continue
+        if in_table:
+            if not line_clean.startswith("|"):
+                in_table = False
+                continue
+            cells = [c.strip() for c in line_clean.split("|")[1:-1]]
+            if len(cells) >= 9:
+                arm_id = cells[0]
+                run_id = cells[7]
+                art_path = cells[8].strip("`")
+                if not run_id or run_id == "N/A":
+                    errors.append(f"Arm {arm_id} missing run_id")
+                if not art_path or art_path == "N/A":
+                    errors.append(f"Arm {arm_id} missing artifact_path")
+                elif not Path(art_path).exists():
+                    errors.append(f"Arm {arm_id} artifact_path '{art_path}' does not exist on disk")
+                checked_rows += 1
+    if checked_rows == 0:
+        errors.append("Markdown report contains no table rows with evaluated arms")
     return len(errors) == 0, errors
 
 

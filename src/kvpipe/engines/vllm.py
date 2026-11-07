@@ -140,8 +140,9 @@ class VLLMEngine(Engine):
                 env["TRIATTN_RUNTIME_SPARSE_STATS_PATH"] = str(Path(arm.compression.stats_path).resolve())
             if arm.compression.budget:
                 env["TRIATTN_RUNTIME_KV_BUDGET"] = str(arm.compression.budget)
-            if arm.compression.protect_prompt:
-                env["TRIATTN_PROTECT_PROMPT"] = "1"
+            env["TRIATTN_RUNTIME_PROTECT_PREFILL"] = "true" if arm.compression.protect_prompt else "false"
+            env.setdefault("TRIATTN_RUNTIME_DIVIDE_LENGTH", "128")
+            env.setdefault("TRIATTN_RUNTIME_WINDOW_SIZE", "128")
 
         log_fd = open(log_file, "w", encoding="utf-8")
         kwargs: dict[str, Any] = {
@@ -178,7 +179,17 @@ class VLLMEngine(Engine):
             raise TimeoutError(f"vLLM server failed to become healthy within {timeout}s. See {log_file}")
 
         # Parse log for KV cache capacity and effective KV dtype (P2.1)
-        capacity_tokens, effective_dtype = self._parse_startup_log(log_file, arm)
+        capacity_tokens, effective_dtype, plugin_active = self._parse_startup_log(log_file, arm)
+        if arm.compression.method == "triattention" and not plugin_active:
+            proc.kill()
+            log_fd.close()
+            raise RuntimeError(f"TriAttention runtime plugin did not activate in vLLM log: {log_file}")
+        if arm.kv_dtype != "auto" and effective_dtype != arm.kv_dtype.lower():
+            proc.kill()
+            log_fd.close()
+            raise RuntimeError(
+                f"Effective KV dtype '{effective_dtype}' does not match arm's intended dtype '{arm.kv_dtype}'"
+            )
 
         return VLLMHandle(
             arm=arm,
@@ -189,9 +200,10 @@ class VLLMEngine(Engine):
             effective_dtype=effective_dtype,
         )
 
-    def _parse_startup_log(self, log_path: Path, arm: ArmConfig) -> tuple[int, str]:
+    def _parse_startup_log(self, log_path: Path, arm: ArmConfig) -> tuple[int, str, bool]:
         capacity = 32768  # Fallback
-        effective_dtype = arm.kv_dtype
+        effective_dtype = arm.kv_dtype.lower()
+        plugin_active = True
 
         if log_path.exists():
             with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -206,4 +218,7 @@ class VLLMEngine(Engine):
                 if m_dt:
                     effective_dtype = m_dt.group(1).lower()
 
-        return capacity, effective_dtype
+                if arm.compression.method == "triattention" and content.strip():
+                    plugin_active = "TriAttention" in content and "activated" in content.lower()
+
+        return capacity, effective_dtype, plugin_active

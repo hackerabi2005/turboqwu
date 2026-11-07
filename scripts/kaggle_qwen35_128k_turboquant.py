@@ -148,7 +148,10 @@ class TurboQuantHybridCache(DynamicCache):
         if self.arm.evict_budget is None:
             return
         for layer_idx in FULL_ATTN_LAYERS:
-            if layer_idx < len(self.layers) or (hasattr(self, "key_cache") and layer_idx < len(self.key_cache)):
+            has_layer = (hasattr(self, "layers") and layer_idx < len(self.layers)) or (
+                hasattr(self, "key_cache") and layer_idx < len(self.key_cache)
+            )
+            if has_layer:
                 k, _ = self._get_kv(layer_idx)
                 if k is not None and k.numel() > 0 and k.shape[-2] > self.arm.evict_budget:
                     self._apply_eviction(layer_idx, self.arm.evict_budget)
@@ -384,7 +387,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        dtype=torch.float16,
+        torch_dtype=torch.float16,
         device_map="auto",
         attn_implementation="sdpa",
     )

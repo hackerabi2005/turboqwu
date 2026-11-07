@@ -31,12 +31,34 @@ def test_evaluate_arm_gates():
     assert eval_res["gates"]["G4_EvictionActive"]["passed"] is True
     assert eval_res["gates"]["G5_Capacity"]["passed"] is True
 
+    # Eviction arm with protect_prompt=False must automatically fail G3
+    eval_unprotected = evaluate_arm_gates(
+        arm_id="A4_unprot",
+        arm_role="reasoning_candidate",
+        is_eviction=True,
+        golden_pass_count=20,
+        corrupt_rate_delta=0.0,
+        extraction_rate_delta=0.0,
+        reasoning_ci_lower=0.0,
+        retrieval_ci_lower=0.0,
+        eviction_applied_events=10,
+        canary_drop=20.0,
+        capacity_ratio=2.0,
+        throughput_ratio=1.0,
+        repeat_std=0.5,
+        thresholds=thresholds,
+        protect_prompt=False,
+    )
+    assert eval_unprotected["gates"]["G3_Retrieval"]["passed"] is False
+    assert eval_unprotected["overall_pass"] is False
+
 
 def test_select_best_arm():
     candidates = [
-        {"arm_id": "A1", "overall_pass": True, "capacity_ratio": 2.0, "throughput": 100.0},
-        {"arm_id": "A4", "overall_pass": True, "capacity_ratio": 2.8, "throughput": 120.0},
-        {"arm_id": "A5", "overall_pass": False, "capacity_ratio": 3.2, "throughput": 130.0},
+        {"arm_id": "A1", "role": "default_recommendation", "overall_pass": True, "capacity_ratio": 2.0, "throughput": 100.0},
+        {"arm_id": "A4", "role": "reasoning_candidate_target", "overall_pass": True, "capacity_ratio": 2.8, "throughput": 120.0},
+        {"arm_id": "A5", "role": "negative_control", "overall_pass": False, "capacity_ratio": 3.2, "throughput": 130.0},
+        {"arm_id": "A6", "role": "unverified_combination", "overall_pass": True, "capacity_ratio": 30.0, "throughput": 150.0},
     ]
     recommended, fallback = select_best_arm(candidates, fallback_id="A1")
     assert recommended is not None

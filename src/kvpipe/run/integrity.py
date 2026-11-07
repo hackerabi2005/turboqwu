@@ -36,11 +36,17 @@ def check_integrity(text: str, finish_reason: str = "stop", task_type: str = "ma
     if not finish_ok and finish_reason == "length":
         reasons.append("truncated_length")
 
-    # 3. Corrupt characters: replacement chars (\ufffd) or runs of question marks (>= 4)
+    # 3. Corrupt characters: replacement chars (\ufffd) or runs of question marks (>= 4) or unexpected CJK/Mojibake drift
     has_replacement = "\ufffd" in text
     has_question_runs = bool(re.search(r"\?{4,}", text))
     if has_replacement or has_question_runs:
         reasons.append("corrupt_characters")
+
+    # 3b. Language drift check (unexpected non-ASCII / CJK character bursts in English reasoning)
+    non_ascii_chars = sum(1 for ch in text if ord(ch) > 127 and ch not in "×÷±≤≥≠≈∞√π∑∏∫•—–‘’“”")
+    language_drift = (len(text) > 20) and ((non_ascii_chars / max(len(text), 1)) > 0.25)
+    if language_drift:
+        reasons.append("language_drift")
 
     # 4. N-gram repetition ratio
     rep_ratio = calculate_repetition_ratio(text, n=4)

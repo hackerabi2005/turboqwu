@@ -56,7 +56,7 @@ def load_suite_data(suite: SuiteConfig, data_dir: str | Path = "artifacts/data")
         with open(cached_file, "r", encoding="utf-8") as f:
             return [json.loads(line) for line in f if line.strip()][: suite.sample_count]
 
-    if suite.id == "retrieval_needle":
+    if suite.id in ("retrieval_needle", "stress_128k") or "needle" in suite.id or "stress" in suite.id:
         return generate_synthetic_needle_suite(sample_count=suite.sample_count)
 
     # For math suites (AIME 2024, AIME 2025, MATH-500)

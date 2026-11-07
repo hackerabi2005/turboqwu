@@ -16,11 +16,11 @@ We built and verified **`kvpipe`**, an end-to-end KV-Cache Compression Pipeline 
 | :--- | :--- | :--- | :---: |
 | **S1** | `kvpipe doctor` names the hardware tier and says which arms can run | `python -m kvpipe.cli doctor` | **PASS** |
 | **S2** | Harness reproduces published reference results within noise (Phases 3 & 5) | `python -m kvpipe.cli run --arm a0 --suite smoke` (`a1`, `a4`, `a6`, `a7`) | **PASS** |
-| **S3** | `kvpipe report` produces a report where every number traces to a stored artifact & `kvpipe audit` verifies `0` orphan cells | `python -m kvpipe.cli report && python -m kvpipe.cli audit --report results/REPORTS/FINAL_REPORT.md` | **PASS** |
-| **S4** | Recommends one primary arm (`A6`) plus fallback (`A1`), both passing all Section 7 gates (`G1`–`G7`) | `results/REPORTS/FINAL_REPORT.md` + `deploy/start_recommended.sh` + `deploy/start_fallback.sh` | **PASS** |
-| **S5** | `kvpipe regress` re-checks gates after any engine, model, or dataset change | `python -m kvpipe.cli regress --arm a6` (exit code `0`) | **PASS** |
+| **S3** | `kvpipe report` produces a report where every number traces to a stored artifact & `kvpipe audit` verifies `0` orphan cells | `python -m kvpipe.cli report && python -m kvpipe.cli audit --report artifacts/report.md` | **PASS** |
+| **S4** | Recommends one primary arm (`A4`) plus fallback (`A1`), both passing all Section 7 gates (`G1`–`G7`) | `artifacts/report.md` + `deploy/recommended.sh` + `deploy/fallback.sh` | **PASS** |
+| **S5** | `kvpipe regress` re-checks gates after any engine, model, or dataset change | `python -m kvpipe.cli regress --arm a4` (exit code `0`) | **PASS** |
 
-- **Automated Test Suite:** `27 passed` (`python -m pytest tests/ -v`)
+- **Automated Test Suite:** `34 passed` (`python -m pytest tests/ -v`)
 - **Static Linter:** `0 errors` (`python -m ruff check src/ tests/ scripts/`)
 
 ---
@@ -42,16 +42,18 @@ turboq new/
 │   ├── compat.yaml                 # GPU tier (T1-T5) & model architecture compatibility matrix
 │   ├── gates.yaml                  # Explicit decision gates G1-G7 thresholds
 │   ├── arms/
-│   │   ├── a0_baseline.yaml        # Arm A0: Baseline FP16/BF16 (1.0x)
+│   │   ├── a0_bf16.yaml            # Arm A0: Baseline BF16 (1.0x)
 │   │   ├── a1_fp8.yaml             # Arm A1: vLLM FP8 KV cache (2.0x)
-│   │   ├── a1b_fp8_boundary.yaml   # Arm A1b: FP8 KV + boundary layer protection [0,1,30,31] (1.8x)
+│   │   ├── a1b_fp8_boundary.yaml   # Arm A1b: FP8 KV + boundary layer protection (2.0x)
 │   │   ├── a2_nvfp4.yaml           # Arm A2: SGLang NVFP4 KV cache for Blackwell (3.56x)
-│   │   ├── a3_triattention_trt.yaml# Arm A3: TensorRT-LLM TriAttention (10.7x)
-│   │   ├── a4_triattention_vllm.yaml# Arm A4: vLLM TriAttention plugin (10.7x)
-│   │   ├── a5_triattention_sglang.yaml# Arm A5: SGLang TriAttention (10.7x)
-│   │   ├── a6_fp8_plus_triattention.yaml # Arm A6: Combined FP8 + TriAttention (~21.4x)
+│   │   ├── a3_fp8_tri4096.yaml     # Arm A3: FP8 + TriAttention budget 4096 (16.0x)
+│   │   ├── a4_fp8_tri3072.yaml     # Arm A4: FP8 + TriAttention budget 3072 (21.34x, Target)
+│   │   ├── a5_fp8_tri2048.yaml     # Arm A5: Negative control budget 2048
+│   │   ├── a6_nvfp4_tri.yaml       # Arm A6: Unverified NVFP4 + TriAttention smoke test
 │   │   ├── a7_turboquant_4bit.yaml # Arm A7: TurboQuant 4-bit preset (3.4x)
-│   │   └── a8_kvzap_hf.yaml        # Arm A8: HuggingFace KVzap surrogate press (3.0x)
+│   │   ├── a8_kvzap.yaml           # Arm A8: HuggingFace KVzap surrogate press
+│   │   ├── c1_canary_tri256.yaml   # Arm C1: Canary budget 256 (proves eviction active)
+│   │   └── r1_tri3072_bf16.yaml    # Arm R1: Paper reproduction (BF16 + TriAttention 3072)
 │   └── suites/
 │       ├── smoke.yaml              # Fast 10-item sanity & regression suite
 │       ├── full.yaml               # Full benchmark suite (math, reasoning, needle, longbench)
@@ -83,12 +85,12 @@ turboq new/
 ├── scripts/
 │   └── kaggle_qwen35_128k_turboquant.py # Standalone 128K-256K Qwen3.5-0.8B Kaggle 2x T4 benchmark
 ├── deploy/
-│   ├── start_recommended.sh        # Production launcher for Recommended Arm (A6)
-│   └── start_fallback.sh           # Production launcher for Fallback Arm (A1)
+│   ├── recommended.sh              # Production launcher for Recommended Arm (A4)
+│   └── fallback.sh                 # Production launcher for Fallback Arm (A1)
 ├── third_party/
 │   ├── triattention/               # Pinned submodule (`WeianMao/triattention` @ `a4bc3c8f`)
 │   └── patches/                    # Clean seam policy (0 in-place third-party edits)
-└── tests/                          # 27 unit & integration tests across 7 test modules
+└── tests/                          # 34 unit & integration tests across 9 test modules
 ```
 
 ---
@@ -170,10 +172,11 @@ python -m kvpipe.cli probe-positions --arm a6
 
 # 5. Generate artifact-backed report & audit every table cell (0 orphans allowed)
 python -m kvpipe.cli report
-python -m kvpipe.cli audit --report results/REPORTS/FINAL_REPORT.md
+python -m kvpipe.cli audit --report artifacts/report.md
+python -m kvpipe.cli audit --report artifacts/report.json
 
 # 6. Run CI regression gate checks against baseline
-python -m kvpipe.cli regress --arm a6
+python -m kvpipe.cli regress --arm a4
 
 # 7. Run full pytest & ruff suite
 python -m pytest tests/ -v

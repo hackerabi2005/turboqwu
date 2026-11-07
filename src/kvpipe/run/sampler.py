@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +14,16 @@ import httpx
 from kvpipe.config import ArmConfig, SuiteConfig
 from kvpipe.run.integrity import check_integrity
 from kvpipe.run.scoring import score_math, score_mcq, score_retrieval
+
+
+def _get_git_sha() -> str:
+    try:
+        res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2)
+        if res.returncode == 0 and res.stdout.strip():
+            return res.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
 
 
 def get_cache_path(runs_dir: Path | str, arm_id: str, suite_id: str, seed: int) -> Path:
@@ -133,6 +145,7 @@ def evaluate_suite_on_arm(
                     except Exception:
                         pass
 
+    git_sha = _get_git_sha()
     with open(cache_file, "a", encoding="utf-8") as out_f:
         for item in items:
             item_id = item["id"]
@@ -164,6 +177,15 @@ def evaluate_suite_on_arm(
 
                 rec = {
                     "arm_id": arm.id,
+                    "engine": arm.engine,
+                    "engine_version": "0.1.0",
+                    "model": arm.model,
+                    "model_revision": arm.model_revision or "main",
+                    "weights_dtype": arm.weights_dtype,
+                    "effective_kv_dtype": arm.kv_dtype,
+                    "compression": arm.compression.model_dump(),
+                    "git_sha": git_sha,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                     "suite": suite.id,
                     "item_id": item_id,
                     "sample_idx": sample_idx,

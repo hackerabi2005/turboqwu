@@ -59,6 +59,11 @@ def test_integrity_checks_corruptions():
     assert no_box["passed"] is False
     assert "no_boxed_answer" in no_box["failure_reasons"]
 
+    # Language drift
+    drift = check_integrity("这是完全乱码的输出语言漂移测试中文字符过多导致失败 \\boxed{42}", finish_reason="stop", task_type="math")
+    assert drift["passed"] is False
+    assert "language_drift" in drift["failure_reasons"]
+
 
 def test_paired_bootstrap_and_verdicts():
     # Pass scenario: candidate and reference have matching high performance

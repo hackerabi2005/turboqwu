@@ -22,6 +22,7 @@ def evaluate_arm_gates(
     throughput_ratio: float,
     repeat_std: float,
     thresholds: GateThresholds,
+    protect_prompt: bool = True,
 ) -> dict[str, Any]:
     """Evaluate gates G1 through G7 for an individual arm."""
     gate_results: dict[str, dict[str, Any]] = {}
@@ -49,12 +50,15 @@ def evaluate_arm_gates(
 
     # G3: Retrieval Accuracy (if applicable)
     g3_pass = True
-    if retrieval_ci_lower is not None:
+    if is_eviction and not protect_prompt:
+        g3_pass = False
+    elif retrieval_ci_lower is not None:
         g3_pass = retrieval_ci_lower >= -abs(thresholds.g3_retrieval_margin)
     gate_results["G3_Retrieval"] = {
         "passed": g3_pass,
         "ci_lower": retrieval_ci_lower,
         "margin": thresholds.g3_retrieval_margin,
+        "protect_prompt": protect_prompt,
     }
 
     # G4: Eviction Active (eviction arms only)
@@ -116,7 +120,9 @@ def select_best_arm(
     """
     passing_candidates = [
         a for a in arm_evaluations
-        if a.get("overall_pass") and a.get("arm_id") not in ("A0", "R1", "C1")
+        if a.get("overall_pass")
+        and a.get("arm_id") not in ("A0", "R1", "C1", "A6", "A8")
+        and a.get("role") not in ("reference", "paper_reproduction", "canary", "negative_control", "unverified_combination", "offline_docqa")
     ]
 
     if not passing_candidates:

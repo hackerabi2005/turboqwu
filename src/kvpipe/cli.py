@@ -14,15 +14,42 @@ from kvpipe.config import GateThresholds, load_arm_config, load_gates_config, lo
 from kvpipe.data.loaders import load_suite_data
 from kvpipe.decide import evaluate_arm_gates, select_best_arm
 from kvpipe.doctor import detect_environment, run_doctor
+from kvpipe.engines.sglang import SGLangEngine
 from kvpipe.engines.stub import StubEngine
+from kvpipe.engines.trtllm import TRTLLMEngine
 from kvpipe.engines.vllm import VLLMEngine
+from kvpipe.probes import run_generated_memory_probe, run_prompt_depth_probes
+from kvpipe.profile import profile_kv_norms
 from kvpipe.regress import run_regression_check
-from kvpipe.report import audit_report_claims, generate_deployment_scripts, generate_reports
+from kvpipe.report import (
+    audit_markdown_report,
+    audit_report_claims,
+    generate_deployment_scripts,
+    generate_reports,
+)
 from kvpipe.run.perf import run_performance_sweep
 from kvpipe.run.sampler import evaluate_suite_on_arm
 from kvpipe.stats import paired_bootstrap_ci
 
 console = Console()
+
+
+def _build_deploy_command(arm_cfg) -> str:
+    extra = (" " + " ".join(arm_cfg.serve.extra_args)) if arm_cfg.serve.extra_args else ""
+    if arm_cfg.engine == "sglang":
+        return f"python -m sglang.launch_server --model-path {arm_cfg.model} --kv-cache-dtype {arm_cfg.kv_dtype}{extra}"
+    env_prefix = ""
+    if arm_cfg.compression.method == "triattention":
+        stats = arm_cfg.compression.stats_path or "artifacts/calib/qwen3_8b.pt"
+        budget = arm_cfg.compression.budget or 3072
+        protect = "true" if arm_cfg.compression.protect_prompt else "false"
+        env_prefix = (
+            f"TRIATTN_RUNTIME_SPARSE_STATS_PATH={stats} "
+            f"TRIATTN_RUNTIME_KV_BUDGET={budget} "
+            f"TRIATTN_RUNTIME_PROTECT_PREFILL={protect} "
+        )
+    skip = f" --kv-cache-dtype-skip-layers {arm_cfg.skip_layers}" if arm_cfg.skip_layers else ""
+    return f"{env_prefix}vllm serve {arm_cfg.model} --kv-cache-dtype {arm_cfg.kv_dtype}{skip}{extra}"
 
 
 def find_arm_config_file(arm_id: str) -> Path:
@@ -84,12 +111,12 @@ def doctor(env_file: str | None, json_output: bool) -> None:
     console.print(pkg_table)
 
     arm_table = Table(title="Arm Candidate Evaluation")
-    arm_table.add_column("Arm ID")
-    arm_table.add_column("Role")
-    arm_table.add_column("Engine")
-    arm_table.add_column("KV Dtype")
-    arm_table.add_column("Supported?", justify="center")
-    arm_table.add_column("Reason / Notes")
+    arm_table.add_column("Arm ID", overflow="fold")
+    arm_table.add_column("Role", overflow="fold")
+    arm_table.add_column("Engine", overflow="fold")
+    arm_table.add_column("KV Dtype", overflow="fold")
+    arm_table.add_column("Supported?", justify="center", overflow="fold")
+    arm_table.add_column("Reason / Notes", overflow="fold")
 
     for a in rep["arms"]:
         status_str = "[bold green]YES[/bold green]" if a["supported"] else "[bold red]NO[/bold red]"
@@ -108,10 +135,10 @@ def calibrate(model: str, output_dir: str) -> None:
 
 @main.command()
 @click.option("--arm", "arm_id", default="A4", help="Arm configuration ID (e.g. A0, A1, A4)")
-@click.option("--suite", "suite_id", default="aime25", help="Suite configuration ID (e.g. aime25, math500)")
-@click.option("--use-stub", is_flag=True, default=True, help="Force use stub engine for testing")
+@click.option("--suite", "suite_id", default="aime25", help="Suite configuration ID (e.g. aime25, math500, smoke)")
+@click.option("--use-stub/--no-stub", default=None, help="Force use stub engine for testing")
 @click.option("--port", default=8990, help="Port for server")
-def run(arm_id: str, suite_id: str, use_stub: bool, port: int) -> None:
+def run(arm_id: str, suite_id: str, use_stub: bool | None, port: int) -> None:
     """Launch engine and run evaluation for an arm on a suite."""
     arm_file = find_arm_config_file(arm_id)
     suite_file = Path(f"configs/suites/{suite_id.lower()}.yaml")
@@ -122,7 +149,15 @@ def run(arm_id: str, suite_id: str, use_stub: bool, port: int) -> None:
     suite_cfg = load_suite_config(suite_file)
 
     env = detect_environment()
-    engine = StubEngine() if (use_stub or env.get("detected_tier") == "None") else VLLMEngine()
+    use_stub_engine = use_stub if use_stub is not None else (arm_cfg.engine == "stub" or env.get("detected_tier") == "None")
+    if use_stub_engine:
+        engine = StubEngine()
+    elif arm_cfg.engine == "sglang":
+        engine = SGLangEngine()
+    elif arm_cfg.engine == "trtllm":
+        engine = TRTLLMEngine()
+    else:
+        engine = VLLMEngine()
 
     console.print(f"Launching arm [bold cyan]{arm_cfg.id}[/bold cyan] with {engine.__class__.__name__}...")
     handle = engine.launch(arm_cfg, port=port)
@@ -173,7 +208,12 @@ def report(output_dir: str) -> None:
             results = evaluate_suite_on_arm(arm_cfg, suite_cfg, h.base_url, items, runs_dir=runs_dir)
             perf = run_performance_sweep(arm_cfg, h.base_url, concurrencies=[1], repeats=1)
             tps = perf["concurrency_sweep"][0]["tokens_per_sec_mean"]
-            cap_ratio = round(h.kv_capacity_tokens() / 32768.0, 2)
+            dtype_gain = round(h.kv_capacity_tokens() / 32768.0, 2)
+            if arm_cfg.compression.method == "triattention" and arm_cfg.compression.budget:
+                eviction_ratio = round(32768.0 / max(arm_cfg.compression.budget, 256), 2)
+            else:
+                eviction_ratio = 1.0
+            cap_ratio = round(dtype_gain * eviction_ratio, 2)
             ev_events = h.eviction_events()
             applied_ev = ev_events[1] if ev_events else None
         finally:
@@ -198,6 +238,7 @@ def report(output_dir: str) -> None:
             throughput_ratio=1.0,
             repeat_std=0.5,
             thresholds=thresholds,
+            protect_prompt=arm_cfg.compression.protect_prompt,
         )
 
         art_path = runs_dir / f"run_{arm_cfg.id}_{suite_cfg.id}_seed{suite_cfg.seed}.jsonl"
@@ -209,6 +250,8 @@ def report(output_dir: str) -> None:
         evaluated_arms.append({
             "arm_id": arm_cfg.id,
             "role": arm_cfg.role,
+            "dtype_gain": dtype_gain,
+            "eviction_ratio": eviction_ratio,
             "capacity_ratio": cap_ratio,
             "mean_delta": ci["mean_delta"],
             "ci_lower": ci["ci_lower"],
@@ -220,7 +263,7 @@ def report(output_dir: str) -> None:
             "run_id": f"RUN_{arm_cfg.id}_S{suite_cfg.seed}",
             "artifact_path": str(art_path.resolve()),
             "gates": gate_eval["gates"],
-            "deploy_command": f"vllm serve {arm_cfg.model} --kv-cache-dtype {arm_cfg.kv_dtype}",
+            "deploy_command": _build_deploy_command(arm_cfg),
         })
 
     recommended, fallback = select_best_arm(evaluated_arms, fallback_id="A1")
@@ -246,24 +289,69 @@ def report(output_dir: str) -> None:
     console.print(f"[bold green]Fallback Arm:[/bold green] {fallback.get('arm_id') if fallback else 'None'}")
 
 
+@main.command("profile-kv")
+@click.option("--model", default="Qwen/Qwen3-8B", help="Model name or HuggingFace ID")
+@click.option("--layers", default=36, help="Number of layers to profile")
+@click.option("--output-dir", default="artifacts/profile", help="Output directory for profile results")
+def profile_kv(model: str, layers: int, output_dir: str) -> None:
+    """Profile per-layer K/V norm ratios and outlier risk (PLAN.md P6.1)."""
+    res = profile_kv_norms(model_name=model, num_layers=layers, output_dir=output_dir)
+    console.print(f"[bold green]K/V Norm Profile completed for {model}:[/bold green]")
+    console.print(f" - Max Ratio: [bold]{res['summary']['max_ratio']}[/bold]")
+    console.print(f" - Mean Ratio: [bold]{res['summary']['mean_ratio']}[/bold]")
+    console.print(f" - Overall Risk: [bold yellow]{res['summary']['overall_k_quant_risk']}[/bold yellow]")
+    sanitized_model = model.replace("/", "_")
+    console.print(f" - Profile saved to: {Path(output_dir) / f'{sanitized_model}.json'}")
+
+
+@main.command("probe-positions")
+@click.option("--arm", "arm_id", default="A4", help="Arm configuration ID to probe")
+@click.option("--port", default=8995, help="Port for stub/engine server")
+def probe_positions(arm_id: str, port: int) -> None:
+    """Run needle prompt depth probes and generated memory probes (PLAN.md P6.3)."""
+    arm_file = find_arm_config_file(arm_id)
+    arm_cfg = load_arm_config(arm_file)
+    stub = StubEngine()
+    h = stub.launch(arm_cfg, port=port)
+    try:
+        depth_res = run_prompt_depth_probes(h.base_url, arm_cfg.model)
+        budget = arm_cfg.compression.budget if arm_cfg.compression.budget is not None else 3072
+        gen_res = run_generated_memory_probe(h.base_url, arm_cfg.model, budget=budget)
+        console.print(f"[bold green]Position Probes for Arm {arm_cfg.id}:[/bold green]")
+        console.print(f" - Prompt Depths Passed: [bold]{depth_res['all_depths_passed']}[/bold] ({depth_res['probe_depths']})")
+        console.print(f" - Generated Memory Probe Recalled: [bold]{gen_res['recalled']}[/bold] (Risk: {gen_res['eviction_risk']})")
+    finally:
+        h.stop()
+
+
 @main.command()
-@click.option("--report-path", default="artifacts/report.json", help="Path to report.json to audit")
+@click.option("--report-path", "--report", default="artifacts/report.json", help="Path to report.json or report.md to audit")
 def audit(report_path: str) -> None:
     """Verify that every number and claim in the report traces to a run ID and artifact path."""
     p = Path(report_path)
     if not p.exists():
-        raise click.ClickException(f"Report file {p} does not exist. Run 'kvpipe report' first.")
+        if Path("artifacts/report.json").exists():
+            p = Path("artifacts/report.json")
+        elif Path("artifacts/report.md").exists():
+            p = Path("artifacts/report.md")
+        else:
+            raise click.ClickException(f"Report file {report_path} does not exist. Run 'kvpipe report' first.")
 
-    with open(p, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    if p.suffix == ".md":
+        with open(p, "r", encoding="utf-8") as f:
+            md_text = f.read()
+        ok, errors = audit_markdown_report(md_text)
+    else:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        ok, errors = audit_report_claims(data)
 
-    ok, errors = audit_report_claims(data)
     if not ok:
         console.print("[bold red]AUDIT FAILED:[/bold red]")
         for e in errors:
             console.print(f" - [red]{e}[/red]")
         raise click.ClickException("Audit verification failed.")
-    console.print("[bold green]AUDIT PASSED:[/bold green] All claims trace directly to verified run artifacts.")
+    console.print(f"[bold green]AUDIT PASSED:[/bold green] All claims in {p} trace directly to verified run artifacts.")
 
 
 @main.command()

@@ -137,6 +137,10 @@ def classify_tier(env: dict[str, Any]) -> str:
         elif major == 8:
             if best_tier not in ("T1", "T2", "T3"):
                 best_tier = "T4"
+        # T5: Turing or Volta (SM70, SM75, e.g. NVIDIA T4, V100)
+        elif major == 7:
+            if best_tier not in ("T1", "T2", "T3", "T4"):
+                best_tier = "T5"
     return best_tier
 
 
@@ -163,26 +167,34 @@ def check_arm_support(arm: ArmConfig, env: dict[str, Any]) -> Tuple[bool, str]:
     if tier == "None":
         return False, "No compatible NVIDIA GPU found in environment"
 
-    # NVFP4 check
+    # NVFP4 check: needs SM12x or SM100/103 and a GQA or sparse-MLA model (no hybrid)
     if arm.kv_dtype == "nvfp4":
         if tier not in ("T1", "T2"):
             return False, f"NVFP4 KV requires Blackwell (T1 or T2, SM100/103/120/121), detected tier is {tier}"
+        model_lower = arm.model.lower()
+        if any(h in model_lower for h in ("jamba", "mamba", "zamba", "qwen3.5", "qwen3_5")):
+            return False, "NVFP4 KV requires a GQA or sparse-MLA model (hybrid architectures unsupported)"
 
-    # TensorRT-LLM TriAttention check
+    # TensorRT-LLM TriAttention check: SM100/103/107 and GQA/MHA/MQA only (no MLA, no hybrid)
     if arm.engine == "trtllm" and arm.compression.method == "triattention":
         if tier != "T1":
             return False, f"TRT-LLM TriAttention is supported only on T1 (SM100/103/107), detected tier is {tier}"
+        model_lower = arm.model.lower()
+        if any(arch in model_lower for arch in ("deepseek-v2", "deepseek-v3", "deepseek-r1", "kimi", "jamba", "mamba", "qwen3.5", "qwen3_5")):
+            if "distill" not in model_lower:
+                return False, "TRT-LLM TriAttention requires GQA, MHA, or MQA architecture (MLA and hybrid models are unsupported)"
 
     # FP8 KV check
     if arm.kv_dtype == "fp8":
         if tier == "T4":
             return True, "Supported (T4 FP8 KV is experimental; test with care)"
+        if tier == "T5":
+            return False, "Hardware FP8 KV cache is not supported on Turing/Volta (SM70/75; requires SM89+)"
 
     # TurboQuant check (sliding window / hybrid architecture check)
     if "turboquant" in arm.kv_dtype or arm.compression.method == "turboquant":
-        # Check model name for known hybrid / sliding window models
         model_lower = arm.model.lower()
-        if "gemma" in model_lower or "jamba" in model_lower:
+        if any(h in model_lower for h in ("gemma", "jamba", "mamba", "zamba", "qwen3.5", "qwen3_5")):
             return False, "TurboQuant does not support hybrid or sliding-window architectures"
 
     return True, "Supported"

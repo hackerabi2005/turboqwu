@@ -64,6 +64,7 @@ def test_tier_classification():
     assert classify_tier({"gpus": [{"compute_cap": "9.0"}]}) == "T3"
     assert classify_tier({"gpus": [{"compute_cap": "8.9"}]}) == "T4"
     assert classify_tier({"gpus": [{"compute_cap": "8.0"}]}) == "T4"
+    assert classify_tier({"gpus": [{"compute_cap": "7.5"}]}) == "T5"
     assert classify_tier({"gpus": []}) == "None"
 
 
@@ -83,6 +84,17 @@ def test_trtllm_support_rules(b200_env, rtx5090_env):
     ok, msg = check_arm_support(arm_trt, rtx5090_env)
     assert ok is False
     assert "TRT-LLM TriAttention is supported only on T1" in msg
+
+    # T1 with MLA / hybrid model not supported on TRT-LLM TriAttention
+    arm_mla = ArmConfig(
+        id="T1_TRT_MLA",
+        engine="trtllm",
+        model="deepseek-ai/DeepSeek-V3",
+        compression=CompressionConfig(method="triattention", budget=3072),
+    )
+    ok_mla, msg_mla = check_arm_support(arm_mla, b200_env)
+    assert ok_mla is False
+    assert "MLA and hybrid" in msg_mla
 
 
 def test_nvfp4_support_rules(b200_env, rtx5090_env, h100_env, rtx4090_env):
@@ -108,6 +120,17 @@ def test_nvfp4_support_rules(b200_env, rtx5090_env, h100_env, rtx4090_env):
     ok, msg = check_arm_support(arm_nvfp4, rtx4090_env)
     assert ok is False
     assert "NVFP4 KV requires Blackwell" in msg
+
+    # Hybrid model rejected for NVFP4 even on Blackwell
+    arm_nvfp4_hybrid = ArmConfig(
+        id="A2_hybrid",
+        engine="sglang",
+        model="Qwen/Qwen3.5-0.8B",
+        kv_dtype="nvfp4",
+    )
+    ok_hyb, msg_hyb = check_arm_support(arm_nvfp4_hybrid, b200_env)
+    assert ok_hyb is False
+    assert "hybrid" in msg_hyb.lower()
 
 
 def test_fp8_experimental_on_t4(rtx4090_env):

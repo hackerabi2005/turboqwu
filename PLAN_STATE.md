@@ -41,3 +41,4 @@
 | Phase 8 | P8.1 | Regression CLI command | `kvpipe regress` | Done | Re-evaluates 20 golden prompts, canary eviction, and reduced suite |
 | Phase 8 | P8.2-3 | Canary rollout & monitoring rules | `src/kvpipe/regress.py` | Done | 5% canary traffic monitoring with automatic rollback triggers (0.5 pt integrity breach, p95 TPOT) |
 | Phase 8 | P8.4 | System documentation & runbook | `README.md`, `RUNBOOK.md`, `DECISIONS.md` | Done | Full quickstart, operations runbook, and architectural decisions |
+| Audit & Fix | Verification | Audited all code vs `PLAN.md` & `HANDOFF.md` (`pytest` + `ruff` + `kvpipe audit` + `kvpipe regress`) | `artifacts/report.md`, `artifacts/report.json`, `deploy/*.sh`, `tests/test_cli_and_kaggle.py` | Done | Fixed env var `TRIATTN_RUNTIME_PROTECT_PREFILL=true`, architecture guards, G3 prompt-protection rule, compression product accounting, result record metadata, and `HANDOFF.md` paths (34/34 tests pass, 0 ruff errors) |
