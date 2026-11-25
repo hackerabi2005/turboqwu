@@ -159,7 +159,7 @@ WORKLOAD_PROFILES: dict[str, dict[str, Any]] = {
         "kv_dtype": "turboquant_k8v4",
         "eviction_policy": "decode_only_triattention_k8_segments",
         "protect_prompt": True,
-        "expected_compression": "4.6x - 10.7x (lossless prompt + pruned CoT)",
+        "expected_compression": "4.45x - 17.7x (lossless prompt + pruned CoT)",
         "rationale": "Protects 100% of prompt tokens (protect_prompt=True) and applies Pre-RoPE K=8 segment TriAttention only to generated reasoning tokens.",
     },
     "longctx": {
@@ -169,7 +169,7 @@ WORKLOAD_PROFILES: dict[str, dict[str, Any]] = {
         "kv_dtype": "turboquant_k8v4_qjl",
         "eviction_policy": "none (full token retention with boundary layer FP8 protection)",
         "protect_prompt": True,
-        "expected_compression": "2.31x - 3.76x (100% recall across all depths 10%-90%)",
+        "expected_compression": "2.20x - 3.01x (100% recall across all depths 10%-90%)",
         "rationale": "Random-sign FWHT (R=H*D) + K8/V4 asymmetric quantization + 1-bit QJL residual recovery + boundary layer protection preserves 100% multi-needle recall.",
     },
     "chat": {
@@ -179,7 +179,7 @@ WORKLOAD_PROFILES: dict[str, dict[str, Any]] = {
         "kv_dtype": "fp8",
         "eviction_policy": "none (prefix-cache friendly)",
         "protect_prompt": True,
-        "expected_compression": "1.94x - 2.31x",
+        "expected_compression": "1.94x - 2.20x",
         "rationale": "Zero throughput overhead with full prefix-caching compatibility and 100% accuracy retention.",
     },
     "max": {
@@ -189,7 +189,7 @@ WORKLOAD_PROFILES: dict[str, dict[str, Any]] = {
         "kv_dtype": "turboquant_k8v4_qjl",
         "eviction_policy": "block32_k8_segment_quotas_plus_20pct_l2_outliers",
         "protect_prompt": False,
-        "expected_compression": "4.64x (8K) -> 18.5x (32K) -> 37.0x (64K) -> 74.0x (128K)",
+        "expected_compression": "4.45x (8K) -> 17.70x (32K) -> 35.36x (64K) -> 70.71x (128K)",
         "rationale": "Scores 32-token contiguous blocks with Pre-RoPE trigonometric center deviation across K=8 equal geometric segments so multi-token needle facts at 10%-90% depth are never split or lost.",
     },
 }
