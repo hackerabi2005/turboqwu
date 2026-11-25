@@ -57,9 +57,19 @@ class SGLangHandle(EngineHandle):
         return metrics_dict
 
     def eviction_events(self) -> tuple[int, int] | None:
-        if self._arm.compression.method == "triattention":
-            return (10, 10)
-        return None
+        if self._arm.compression.method != "triattention":
+            return None
+        received_total = 0
+        applied_total = 0
+        if self._log_file.exists():
+            import re
+            with open(self._log_file, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    m = re.search(r"received\s+(\d+)\s+events?,\s+applied\s+(\d+)\s+events?", line, re.IGNORECASE)
+                    if m:
+                        received_total += int(m.group(1))
+                        applied_total += int(m.group(2))
+        return (received_total, applied_total)
 
     def effective_kv_dtype(self) -> str:
         return self._arm.kv_dtype
@@ -109,7 +119,14 @@ class SGLangEngine(Engine):
         cmd = self.build_command(arm, port)
 
         log_fd = open(log_file, "w", encoding="utf-8")
-        kwargs: dict[str, Any] = {"stdout": log_fd, "stderr": subprocess.STDOUT}
+        env = os.environ.copy()
+        if arm.compression.method == "triattention":
+            if arm.compression.stats_path:
+                env["TRIATTN_RUNTIME_SPARSE_STATS_PATH"] = str(Path(arm.compression.stats_path).resolve())
+            if arm.compression.budget:
+                env["TRIATTN_RUNTIME_KV_BUDGET"] = str(arm.compression.budget)
+            env["TRIATTN_RUNTIME_PROTECT_PREFILL"] = "true" if arm.compression.protect_prompt else "false"
+        kwargs: dict[str, Any] = {"stdout": log_fd, "stderr": subprocess.STDOUT, "env": env}
         if sys.platform != "win32":
             kwargs["preexec_fn"] = os.setsid
 

@@ -34,11 +34,13 @@ def generate_reports(
         json.dump(report_data, f, indent=2)
 
     # Write report.md
+    is_simulated = any(a.get("simulated", False) for a in evaluated_arms)
     md_lines: list[str] = [
         "# kvpipe Evaluation and Decision Report",
         "",
         f"**Recommended Arm:** `{report_data['recommended_arm']}`",
         f"**Safe Fallback Arm:** `{report_data['fallback_arm']}`",
+        f"**Execution Mode:** `{'SIMULATED (StubEngine — no local NVIDIA GPU)' if is_simulated else 'MEASURED (Real GPU Engine)'}`",
         "",
         "## Summary of Arm Configurations",
         "",
