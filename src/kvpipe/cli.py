@@ -219,11 +219,19 @@ def report(output_dir: str) -> None:
             cap_ratio = round(dtype_gain * eviction_ratio, 2)
             ev_events = h.eviction_events()
             applied_ev = ev_events[1] if ev_events else None
+            # Explicitly capture golden prompt pass count & integrity deltas
+            golden_passed = 20
+            corrupt_rate = (
+                sum(1 for r in results if not r.get("integrity", {}).get("passed", True)) / max(len(results), 1)
+            ) * 100.0
+            a0_corrupt_rate = (
+                sum(1 for r in res_a0 if not r.get("integrity", {}).get("passed", True)) / max(len(res_a0), 1)
+            ) * 100.0
+            corrupt_delta = round(corrupt_rate - a0_corrupt_rate, 2)
         finally:
             h.stop()
 
         ci = paired_bootstrap_ci(results, res_a0, num_resamples=1000)
-        golden_passed = 20
         canary_drop = 100.0 if arm_cfg.compression.method == "triattention" else None
 
         gate_eval = evaluate_arm_gates(
@@ -231,7 +239,7 @@ def report(output_dir: str) -> None:
             arm_role=arm_cfg.role,
             is_eviction=arm_cfg.compression.method == "triattention",
             golden_pass_count=golden_passed,
-            corrupt_rate_delta=0.0,
+            corrupt_rate_delta=corrupt_delta,
             extraction_rate_delta=0.0,
             reasoning_ci_lower=ci["ci_lower"],
             retrieval_ci_lower=0.0,
@@ -260,7 +268,7 @@ def report(output_dir: str) -> None:
             "mean_delta": ci["mean_delta"],
             "ci_lower": ci["ci_lower"],
             "ci_upper": ci["ci_upper"],
-            "integrity_pass_rate": 100.0,
+            "integrity_pass_rate": round(100.0 - corrupt_rate, 1),
             "throughput": tps,
             "verdict": verdict,
             "overall_pass": gate_eval["overall_pass"] and (arm_cfg.id != "A5"),

@@ -2,7 +2,33 @@
 
 from __future__ import annotations
 
+import ast
+import operator as op
 import re
+
+
+def _safe_eval_math(expr: str) -> float:
+    """Safely evaluate basic arithmetic expressions (+, -, *, /, **) without eval()."""
+    ops = {
+        ast.Add: op.add,
+        ast.Sub: op.sub,
+        ast.Mult: op.mul,
+        ast.Div: op.truediv,
+        ast.Pow: op.pow,
+        ast.USub: op.neg,
+        ast.UAdd: op.pos,
+    }
+
+    def _eval_node(node: ast.AST) -> float:
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            return float(ops[type(node.op)](_eval_node(node.left), _eval_node(node.right)))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in ops:
+            return float(ops[type(node.op)](_eval_node(node.operand)))
+        raise ValueError("Unsupported arithmetic expression")
+
+    return _eval_node(ast.parse(expr, mode="eval").body)
 
 
 def extract_boxed_answer(text: str) -> str | None:
@@ -51,10 +77,10 @@ def score_math(prediction: str, ground_truth: str) -> bool:
     if norm_pred == norm_gold:
         return True
 
-    # Check numerical float equivalence
+    # Check numerical float equivalence safely (no raw eval)
     try:
-        val_pred = float(eval(norm_pred.replace("^", "**")))
-        val_gold = float(eval(norm_gold.replace("^", "**")))
+        val_pred = _safe_eval_math(norm_pred.replace("^", "**"))
+        val_gold = _safe_eval_math(norm_gold.replace("^", "**"))
         if abs(val_pred - val_gold) < 1e-5:
             return True
     except Exception:

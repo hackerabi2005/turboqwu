@@ -173,8 +173,14 @@ python -m kvpipe.cli recommend --profile auto
 
 ---
 
-## 7. Known Limitations & Hardware Caveats
+## 7. Known Limitations, Bug Fixes & Hardware Caveats
 
+### 7.1 Bugs Found & Resolved During Full Audit
+1. **Replaced unsafe `eval()` in Math Scorer (`src/kvpipe/run/scoring.py`)**: Replaced `eval()` with an AST-based arithmetic evaluator (`_safe_eval_math`) so malformed or untrusted model outputs can never execute arbitrary code.
+2. **Fixed Decode-Step Re-Eviction Drift in `<think>` Mode (`scripts/kaggle_qwen35_128k_turboquant.py`)**: Added lazy periodic compaction (`trigger_len = budget + 256` during decode steps) and bumped `evaluate_mid_context_thinking` `max_new_tokens` from `128` to `192` so mid-context clues (`Beta@55%`, `Gamma@80%`) are not overwritten by per-token re-eviction and `Tag80%` is never truncated after `Math(445)`.
+3. **Fixed SGLang Eviction Tracking (`src/kvpipe/engines/sglang.py`)**: Exported `TRIATTN_RUNTIME_*` environment variables on launch and parsed real `received/applied` eviction counts from SGLang logs instead of returning a hardcoded tuple.
+4. **Real Integrity Rate & Simulated Execution Mode Banner (`src/kvpipe/cli.py`, `src/kvpipe/report.py`)**: Computed actual per-arm integrity pass rates and corruption deltas from run records, and added an explicit `Execution Mode: SIMULATED vs MEASURED` banner to `artifacts/report.md`.
+
+### 7.2 Hardware Caveats
 1. **Simulated Quantization vs. Packed Kernels on Turing T4 (`SM75`):** T4 lacks native FP8 (`SM89+`) and NVFP4 (`SM100+`) tensor cores. `TurboQuantHybridCache` executes exact math (`R = H * D` + Group-64 + 1-Bit QJL) so accuracy and compressed byte accounting are exact, while `A4_evict` physically shrinks the sequence dimension in GPU VRAM (`-2.12 GB` measured at 128K).
 2. **Local Windows Machine Has No NVIDIA GPU:** Local `kvpipe report` / `regress` runs use `StubEngine` and are explicitly labeled `SIMULATED` in both `artifacts/report.md` and `artifacts/report.json` (Rule 3 / Rule 10). Real GPU measurements come from Kaggle 2× T4 runs.
-3. **Decode-Step Re-Eviction at 128K `<think>`:** In `A4_evict` at 128K, re-evicting on every single generated `<think>` token shifts the EMA key center $c_k$; use `protect_prompt=True` or lazy 64-step compaction for long-context thinking workloads.

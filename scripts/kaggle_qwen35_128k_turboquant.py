@@ -196,18 +196,21 @@ class TurboQuantHybridCache(DynamicCache):
     def evict_if_needed(self, is_prefill: bool = False) -> None:
         """
         Run 4-Tier Block-Segmented Pre-RoPE TriAttention KV eviction between forward steps.
+        During decode (is_prefill=False), uses lazy periodic compaction (headroom = 256 tokens)
+        so generated <think> tokens do not re-evict surviving mid-context prompt blocks on every step.
         """
         if self.arm.evict_budget is None:
             return
         if is_prefill and self.arm.protect_prompt:
             return
+        trigger_len = self.arm.evict_budget if is_prefill else (self.arm.evict_budget + 256)
         for layer_idx in FULL_ATTN_LAYERS:
             has_layer = (hasattr(self, "layers") and layer_idx < len(self.layers)) or (
                 hasattr(self, "key_cache") and layer_idx < len(self.key_cache)
             )
             if has_layer:
                 k, _ = self._get_kv(layer_idx)
-                if k is not None and k.numel() > 0 and k.shape[-2] > self.arm.evict_budget:
+                if k is not None and k.numel() > 0 and k.shape[-2] > trigger_len:
                     self._apply_eviction(layer_idx, self.arm.evict_budget)
 
     def _apply_eviction(self, layer_idx: int, budget: int) -> tuple[torch.Tensor, torch.Tensor]:
@@ -592,7 +595,7 @@ def evaluate_mid_context_thinking(
     arm: ArmSpec,
     context_len: int,
     chunk_size: int = 4096,
-    max_new_tokens: int = 128,
+    max_new_tokens: int = 192,
 ) -> dict[str, Any]:
     """
     Evaluates active `<think>...</think>` reasoning on clues buried in the middle of an
